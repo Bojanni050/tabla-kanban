@@ -289,7 +289,7 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
             />
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={handleAddCard} className="h-7 text-xs">
-                Add card
+                New card
               </Button>
               <Button
                 variant="ghost"
