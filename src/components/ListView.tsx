@@ -176,9 +176,13 @@ interface ListViewProps {
   onDeleteCard: (cardId: string) => Promise<boolean>;
   onEditCard: (cardId: string, title: string) => Promise<boolean>;
   onReorderCard: (listId: string, cardId: string, toIndex: number) => void;
+  onMoveCard: (cardId: string, fromListId: string, toListId: string, toIndex: number) => void;
 }
 
-export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCard, onReorderCard }: ListViewProps) {
+// Drag state shared across lists so a card can be dropped into another list
+let activeDrag: { cardId: string; fromListId: string } | null = null;
+
+export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCard, onReorderCard, onMoveCard }: ListViewProps) {
   const [isAddingCard, setIsAddingCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -222,40 +226,60 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
     if (!listTitle.trim()) setListTitle(list.title);
   };
 
-  const handleCardDragOver = (e: React.DragEvent, index: number) => {
-    if (!draggingIdRef.current) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const rect = e.currentTarget.getBoundingClientRect();
-    const isAfter = e.clientY - rect.top > rect.height / 2;
-    const idx = isAfter ? index + 1 : index;
+  const setOverIndex = (idx: number | null) => {
     dragOverIndexRef.current = idx;
     setDragOverIndex(idx);
   };
 
+  const handleCardDragOver = (e: React.DragEvent, index: number) => {
+    if (!activeDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = e.clientY - rect.top > rect.height / 2;
+    setOverIndex(isAfter ? index + 1 : index);
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (draggingIdRef.current && dragOverIndexRef.current !== null) {
-      onReorderCard(list.id, draggingIdRef.current, dragOverIndexRef.current);
+    const drag = activeDrag;
+    const toIndex = dragOverIndexRef.current;
+    if (drag && toIndex !== null) {
+      activeDrag = null;
+      if (drag.fromListId === list.id) {
+        onReorderCard(list.id, drag.cardId, toIndex);
+      } else {
+        onMoveCard(drag.cardId, drag.fromListId, list.id, toIndex);
+      }
     }
     draggingIdRef.current = null;
-    dragOverIndexRef.current = null;
     setDraggingId(null);
-    setDragOverIndex(null);
+    setOverIndex(null);
   };
 
   const resetDrag = () => {
+    activeDrag = null;
     draggingIdRef.current = null;
-    dragOverIndexRef.current = null;
     setDraggingId(null);
-    setDragOverIndex(null);
+    setOverIndex(null);
   };
 
-  const showIndicator = (index: number) =>
-    draggingId !== null && dragOverIndex === index;
+  const showIndicator = (index: number) => dragOverIndex === index;
 
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-muted/40">
+    <div
+      className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-muted/40"
+      onDragOver={(e) => {
+        // Fallback for empty lists / gaps: drop at the end of this list
+        if (!activeDrag || e.defaultPrevented) return;
+        e.preventDefault();
+        setOverIndex(list.cards.length);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverIndex(null);
+      }}
+      onDrop={handleDrop}
+    >
       {/* List header */}
       <div className="flex items-center justify-between px-3 py-2.5">
         {isEditingTitle ? (
@@ -300,7 +324,7 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-2 px-2.5" onDrop={handleDrop} onDragOver={(e) => { if (draggingIdRef.current) e.preventDefault(); }}>
+      <div className="flex flex-col gap-2 px-2.5">
         {list.cards.map((card, index) => (
           <div key={card.id}>
             <div
@@ -313,6 +337,7 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
             <div
               draggable
               onDragStart={(e) => {
+                activeDrag = { cardId: card.id, fromListId: list.id };
                 draggingIdRef.current = card.id;
                 setDraggingId(card.id);
                 e.dataTransfer.effectAllowed = 'move';
@@ -338,12 +363,10 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
           )}
           data-testid={`drop-indicator-${list.id}-end`}
           onDragOver={(e) => {
-            if (!draggingIdRef.current) return;
+            if (!activeDrag) return;
             e.preventDefault();
-            dragOverIndexRef.current = list.cards.length;
-            setDragOverIndex(list.cards.length);
+            setOverIndex(list.cards.length);
           }}
-          onDrop={handleDrop}
         />
       </div>
 

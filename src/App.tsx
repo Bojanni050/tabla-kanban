@@ -240,24 +240,175 @@ function App() {
     }
   };
 
-  // Visual-only reorder of cards within a single list (in-memory, not persisted)
-  const handleReorderCard = (listId: string, cardId: string, toIndex: number) => {
+  // Reorder cards within a single list and persist position in PostgreSQL
+  const handleReorderCard = async (listId: string, cardId: string, toIndex: number) => {
+    if (!board) return;
+
+    const currentList = board.lists.find((l) => l.id === listId);
+    if (!currentList) return;
+
+    const previousCards = currentList.cards;
+    const cards = [...previousCards];
+    const fromIndex = cards.findIndex((c) => c.id === cardId);
+    if (fromIndex === -1) return;
+
+    const targetIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    if (targetIndex === fromIndex) return;
+
+    const [movedCard] = cards.splice(fromIndex, 1);
+    cards.splice(targetIndex, 0, movedCard);
+
+    let newPosition: number;
+    let needsReindex = false;
+
+    if (cards.length <= 1) {
+      newPosition = 0;
+    } else if (targetIndex === 0) {
+      const nextPos = cards[1].position;
+      newPosition = nextPos - 1;
+    } else if (targetIndex === cards.length - 1) {
+      const prevPos = cards[targetIndex - 1].position;
+      newPosition = prevPos + 1;
+    } else {
+      const prevPos = cards[targetIndex - 1].position;
+      const nextPos = cards[targetIndex + 1].position;
+      if (prevPos >= nextPos || nextPos - prevPos < 1e-6) {
+        needsReindex = true;
+        newPosition = targetIndex;
+      } else {
+        newPosition = (prevPos + nextPos) / 2;
+      }
+    }
+
+    const updatedCards = cards.map((c, i) => {
+      if (needsReindex) {
+        return { ...c, position: i };
+      }
+      if (c.id === cardId) {
+        return { ...c, position: newPosition };
+      }
+      return c;
+    });
+
+    // Optimistically update board state
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((l) =>
+          l.id === listId ? { ...l, cards: updatedCards } : l
+        ),
+      };
+    });
+
+    if (board.id === DEMO_BOARD.id) {
+      return;
+    }
+
+    try {
+      if (needsReindex) {
+        await Promise.all(
+          updatedCards.map((c, i) => api.updateCard(c.id, { position: i }))
+        );
+      } else {
+        await api.updateCard(cardId, { position: newPosition });
+      }
+    } catch {
+      // Revert to previous order and notify user
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((l) =>
+            l.id === listId ? { ...l, cards: previousCards } : l
+          ),
+        };
+      });
+      toast({
+        variant: 'destructive',
+        title: 'Failed to reorder card',
+        description: 'The new card order could not be saved. Please try again.',
+      });
+    }
+  };
+
+  // Move a card to another list at toIndex and persist listId + position
+  const handleMoveCard = async (
+    cardId: string,
+    fromListId: string,
+    toListId: string,
+    toIndex: number
+  ) => {
+    if (!board || fromListId === toListId) return;
+
+    const fromList = board.lists.find((l) => l.id === fromListId);
+    const toList = board.lists.find((l) => l.id === toListId);
+    const card = fromList?.cards.find((c) => c.id === cardId);
+    if (!fromList || !toList || !card) return;
+
+    const previousLists = board.lists;
+    const targetCards = [...toList.cards];
+    const index = Math.max(0, Math.min(toIndex, targetCards.length));
+    targetCards.splice(index, 0, { ...card, listId: toListId });
+
+    let newPosition: number;
+    let needsReindex = false;
+
+    if (targetCards.length === 1) {
+      newPosition = 0;
+    } else if (index === 0) {
+      newPosition = targetCards[1].position - 1;
+    } else if (index === targetCards.length - 1) {
+      newPosition = targetCards[index - 1].position + 1;
+    } else {
+      const prevPos = targetCards[index - 1].position;
+      const nextPos = targetCards[index + 1].position;
+      if (prevPos >= nextPos || nextPos - prevPos < 1e-6) {
+        needsReindex = true;
+        newPosition = index;
+      } else {
+        newPosition = (prevPos + nextPos) / 2;
+      }
+    }
+
+    const updatedTarget = targetCards.map((c, i) => {
+      if (needsReindex) return { ...c, position: i };
+      return c.id === cardId ? { ...c, position: newPosition } : c;
+    });
+
     setBoard((prev) => {
       if (!prev) return prev;
       return {
         ...prev,
         lists: prev.lists.map((l) => {
-          if (l.id !== listId) return l;
-          const cards = [...l.cards];
-          const fromIndex = cards.findIndex((c) => c.id === cardId);
-          if (fromIndex === -1) return l;
-          const [moved] = cards.splice(fromIndex, 1);
-          const target = fromIndex < toIndex ? toIndex - 1 : toIndex;
-          cards.splice(target, 0, moved);
-          return { ...l, cards };
+          if (l.id === fromListId) {
+            return { ...l, cards: l.cards.filter((c) => c.id !== cardId) };
+          }
+          if (l.id === toListId) return { ...l, cards: updatedTarget };
+          return l;
         }),
       };
     });
+
+    if (board.id === DEMO_BOARD.id) return;
+
+    try {
+      await api.updateCard(cardId, { listId: toListId, position: newPosition });
+      if (needsReindex) {
+        await Promise.all(
+          updatedTarget
+            .filter((c) => c.id !== cardId)
+            .map((c) => api.updateCard(c.id, { position: c.position }))
+        );
+      }
+    } catch {
+      setBoard((prev) => (prev ? { ...prev, lists: previousLists } : prev));
+      toast({
+        variant: 'destructive',
+        title: 'Failed to move card',
+        description: 'The card could not be moved. Please try again.',
+      });
+    }
   };
 
   const handleCreateBoard = async (name: string, workspaceId: string) => {
@@ -316,6 +467,7 @@ function App() {
             onDeleteCard={handleDeleteCard}
             onEditCard={handleEditCard}
             onReorderCard={handleReorderCard}
+            onMoveCard={handleMoveCard}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           />

@@ -13,6 +13,7 @@ interface BoardViewProps {
   onDeleteCard: (cardId: string) => Promise<boolean>;
   onEditCard: (cardId: string, title: string) => Promise<boolean>;
   onReorderCard: (listId: string, cardId: string, toIndex: number) => void;
+  onMoveCard: (cardId: string, fromListId: string, toListId: string, toIndex: number) => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }
@@ -25,6 +26,7 @@ export function BoardView({
   onDeleteCard,
   onEditCard,
   onReorderCard,
+  onMoveCard,
   sidebarCollapsed,
   onToggleSidebar,
 }: BoardViewProps) {
@@ -86,6 +88,7 @@ export function BoardView({
               onDeleteCard={onDeleteCard}
               onEditCard={onEditCard}
               onReorderCard={onReorderCard}
+              onMoveCard={onMoveCard}
             />
           ))}
 
