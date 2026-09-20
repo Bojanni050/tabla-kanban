@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String      @id @default(uuid())
+  email     String      @unique
+  name      String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  workspaces Workspace[]
+}
+
+model Workspace {
+  id        String      @id @default(uuid())
+  name      String
+  userId    String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boards     Board[]
+}
+
+model Board {
+  id          String      @id @default(uuid())
+  name        String
+  workspaceId String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lists     List[]
+}
+
+model List {
+  id        String      @id @default(uuid())
+  title     String
+  position  Float
+  boardId   String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards Card[]
+}
+
+model Card {
+  id          String      @id @default(uuid())
+  title       String
+  description String?
+  position    Float
+  listId      String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([listId, position])
+}
