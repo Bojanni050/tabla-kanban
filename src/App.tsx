@@ -240,6 +240,26 @@ function App() {
     }
   };
 
+  // Visual-only reorder of cards within a single list (in-memory, not persisted)
+  const handleReorderCard = (listId: string, cardId: string, toIndex: number) => {
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((l) => {
+          if (l.id !== listId) return l;
+          const cards = [...l.cards];
+          const fromIndex = cards.findIndex((c) => c.id === cardId);
+          if (fromIndex === -1) return l;
+          const [moved] = cards.splice(fromIndex, 1);
+          const target = fromIndex < toIndex ? toIndex - 1 : toIndex;
+          cards.splice(target, 0, moved);
+          return { ...l, cards };
+        }),
+      };
+    });
+  };
+
   const handleCreateBoard = async (name: string, workspaceId: string) => {
     try {
       const created = await api.createBoard(name, workspaceId);
@@ -295,6 +315,7 @@ function App() {
             onDeleteList={handleDeleteList}
             onDeleteCard={handleDeleteCard}
             onEditCard={handleEditCard}
+            onReorderCard={handleReorderCard}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
           />

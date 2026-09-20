@@ -175,13 +175,18 @@ interface ListViewProps {
   onDeleteList: (listId: string) => void;
   onDeleteCard: (cardId: string) => Promise<boolean>;
   onEditCard: (cardId: string, title: string) => Promise<boolean>;
+  onReorderCard: (listId: string, cardId: string, toIndex: number) => void;
 }
 
-export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCard }: ListViewProps) {
+export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCard, onReorderCard }: ListViewProps) {
   const [isAddingCard, setIsAddingCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [listTitle, setListTitle] = useState(list.title);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  const dragOverIndexRef = useRef<number | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
 
@@ -216,6 +221,38 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
     }
     if (!listTitle.trim()) setListTitle(list.title);
   };
+
+  const handleCardDragOver = (e: React.DragEvent, index: number) => {
+    if (!draggingIdRef.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isAfter = e.clientY - rect.top > rect.height / 2;
+    const idx = isAfter ? index + 1 : index;
+    dragOverIndexRef.current = idx;
+    setDragOverIndex(idx);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (draggingIdRef.current && dragOverIndexRef.current !== null) {
+      onReorderCard(list.id, draggingIdRef.current, dragOverIndexRef.current);
+    }
+    draggingIdRef.current = null;
+    dragOverIndexRef.current = null;
+    setDraggingId(null);
+    setDragOverIndex(null);
+  };
+
+  const resetDrag = () => {
+    draggingIdRef.current = null;
+    dragOverIndexRef.current = null;
+    setDraggingId(null);
+    setDragOverIndex(null);
+  };
+
+  const showIndicator = (index: number) =>
+    draggingId !== null && dragOverIndex === index;
 
   return (
     <div className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-muted/40">
@@ -263,10 +300,51 @@ export function ListView({ list, onAddCard, onDeleteList, onDeleteCard, onEditCa
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-2 px-2.5">
-        {list.cards.map((card) => (
-          <CardItem key={card.id} card={card} onDelete={onDeleteCard} onEdit={onEditCard} />
+      <div className="flex flex-col gap-2 px-2.5" onDrop={handleDrop} onDragOver={(e) => { if (draggingIdRef.current) e.preventDefault(); }}>
+        {list.cards.map((card, index) => (
+          <div key={card.id}>
+            <div
+              className={cn(
+                'h-1 -my-0.5 rounded-full bg-primary/70 transition-opacity',
+                showIndicator(index) ? 'opacity-100' : 'opacity-0'
+              )}
+              data-testid={`drop-indicator-${list.id}-${index}`}
+            />
+            <div
+              draggable
+              onDragStart={(e) => {
+                draggingIdRef.current = card.id;
+                setDraggingId(card.id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', card.id);
+              }}
+              onDragEnd={resetDrag}
+              onDragOver={(e) => handleCardDragOver(e, index)}
+              onDrop={handleDrop}
+              className={cn(
+                'cursor-grab active:cursor-grabbing',
+                draggingId === card.id && 'opacity-40'
+              )}
+              data-testid={`card-draggable-${card.id}`}
+            >
+              <CardItem card={card} onDelete={onDeleteCard} onEdit={onEditCard} />
+            </div>
+          </div>
         ))}
+        <div
+          className={cn(
+            'h-1 -mt-0.5 rounded-full bg-primary/70 transition-opacity',
+            showIndicator(list.cards.length) ? 'opacity-100' : 'opacity-0'
+          )}
+          data-testid={`drop-indicator-${list.id}-end`}
+          onDragOver={(e) => {
+            if (!draggingIdRef.current) return;
+            e.preventDefault();
+            dragOverIndexRef.current = list.cards.length;
+            setDragOverIndex(list.cards.length);
+          }}
+          onDrop={handleDrop}
+        />
       </div>
 
       {/* Add card */}
