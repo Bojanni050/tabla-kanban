@@ -74,7 +74,16 @@ jobs:
             # Rebuild and restart. --wait blocks until every service is healthy and fails the
             # deployment if one is not (postgres -> backend, which runs `prisma migrate deploy`
             # on start -> frontend). The database volume is never touched.
-            docker compose up -d --build --wait --wait-timeout 300
+            # On failure, print the service state and logs so the cause shows up in this run.
+            if ! docker compose up -d --build --wait --wait-timeout 300; then
+              echo "::group::docker compose ps"
+              docker compose ps -a || true
+              echo "::endgroup::"
+              echo "::group::backend logs"
+              docker compose logs --no-color --tail=100 backend || true
+              echo "::endgroup::"
+              exit 1
+            fi
 
             docker image prune -f
             docker compose ps
