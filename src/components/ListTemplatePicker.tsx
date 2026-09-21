@@ -21,12 +21,19 @@ interface ListTemplatePickerProps {
 
 const PREVIEW_LIMIT = 5;
 
+const templateMeta = (template: ListTemplate) => [
+  { label: 'Lists', names: template.lists },
+  { label: 'Labels', names: template.labels },
+  { label: 'Swimlanes', names: template.swimlanes ?? [] },
+  { label: 'Card Types', names: template.cardTypes ?? [] },
+];
+
 export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate }: ListTemplatePickerProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setSelectedId(null);
-  }, [open ]);
+  }, [open]);
 
   const selected = LIST_TEMPLATES.find((t) => t.id === selectedId) ?? null;
 
@@ -34,17 +41,18 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
     <Dialog open={open} onOpenChange={(o) => !creating && onOpenChange(o)}>
       <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-lg flex-col bg-white">
         <DialogHeader className="text-left">
-          <DialogTitle>List templates</DialogTitle>
+          <DialogTitle>Board templates</DialogTitle>
           <DialogDescription>
-            Start with a proven structure. All of the template&apos;s lists and labels are added to this board at once — no cards are created.
+            Start with a proven structure. All of the template&apos;s lists, labels, swimlanes and card types are added to this board at once — no cards are created.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid flex-1 gap-2 overflow-y-auto py-1 pr-0.5 sm:grid-cols-2" role="radiogroup" aria-label="List templates">
+        <div className="grid flex-1 gap-2 overflow-y-auto py-1 pr-0.5 sm:grid-cols-2" role="radiogroup" aria-label="Board templates">
           {LIST_TEMPLATES.map((template) => {
             const isSelected = template.id === selectedId;
             const shown = template.lists.slice(0, PREVIEW_LIMIT);
             const hidden = template.lists.length - shown.length;
+            const meta = templateMeta(template);
             return (
               <button
                 key={template.id}
@@ -85,14 +93,39 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
                   )}
                 </span>
                 <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] font-semibold text-muted-foreground">
-                  <span>Lists: {template.lists.length}</span>
-                  <span aria-hidden>·</span>
-                  <span aria-label={`Labels: ${template.labels.join(', ')}`}>Labels: {template.labels.length}</span>
+                  {meta.map(({ label, names }, i) => (
+                    <span key={label} className="inline-flex items-center gap-1">
+                      {i > 0 && <span aria-hidden>·</span>}
+                      <span
+                        title={names.length > 0 ? `${label}: ${names.join(', ')}` : `${label}: none`}
+                      >
+                        {label}: {names.length}
+                      </span>
+                    </span>
+                  ))}
                 </span>
               </button>
             );
           })}
         </div>
+
+        {selected && (
+          <div className="rounded-lg border bg-[#FAFAF8] p-3" style={{ borderColor: 'var(--kala-line)' }} aria-label={`${selected.name} template preview`}>
+            <p className="text-[11px] font-semibold text-foreground">{selected.name}</p>
+            <dl className="mt-1.5 space-y-1">
+              {templateMeta(selected).map(({ label, names }) =>
+                names.length === 0 ? null : (
+                  <div key={label} className="flex items-baseline gap-2">
+                    <dt className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+                    <dd className="min-w-0 text-[11px] leading-snug text-muted-foreground">
+                      {label === 'Lists' ? names.join(' → ') : names.join(' · ')}
+                    </dd>
+                  </div>
+                )
+              )}
+            </dl>
+          </div>
+        )}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating} className="bg-white">
@@ -105,9 +138,9 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
           >
             {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
             {creating
-              ? 'Creating lists and labels...'
+              ? 'Applying template...'
               : selected
-                ? `Use template · ${selected.lists.length} lists · ${selected.labels.length} labels`
+                ? `Use template · ${selected.lists.length} lists · ${selected.labels.length} labels · ${(selected.swimlanes ?? []).length} swimlanes · ${(selected.cardTypes ?? []).length} card types`
                 : 'Use template'}
           </Button>
         </DialogFooter>

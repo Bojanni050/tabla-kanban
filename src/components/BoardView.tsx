@@ -24,9 +24,9 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, CardType, Label, Priority, BoardMember } from '@/types';
+import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, Label, Priority, BoardMember } from '@/types';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
-import { api } from '@/lib/api';
+import { api, type TemplateApplyResult } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -102,6 +102,17 @@ const CARD_TYPE_COLORS = [
 // First-use suggestions shown in the manage dialog; never created without an explicit user action.
 const SUGGESTED_CARD_TYPES = ['Task', 'Feature', 'Bug', 'Request'];
 
+// Human-readable summary of what a template application created, e.g.
+// "6 lists, 5 labels, 3 swimlanes and 4 card types created." Parts that
+// already existed on the board are reported as "new" to make the skip clear.
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+const part = (noun: string, created: number, total: number) =>
+  created === total ? plural(created, noun) : `${created} new ${noun}${created === 1 ? '' : 's'}`;
+const describeTemplateApply = (template: ListTemplate, r: TemplateApplyResult) => {
+  const segments = [plural(r.lists, 'list'), part('label', r.labelsCreated, template.labels.length)];
+  const tail = [part('swimlane', r.swimlanesCreated, (template.swimlanes ?? []).length), part('card type', r.cardTypesCreated, (template.cardTypes ?? []).length)];
+  return `${[...segments, tail[0]].join(', ')} and ${tail[1]} created.`;
+};
 const isCardOverdue = (dueDateStr: string | null | undefined) => {
   if (!dueDateStr) return false;
   const d = new Date(dueDateStr);
@@ -157,10 +168,8 @@ interface BoardViewProps {
   connectionStatus?: RealtimeStatus;
   /** Latest remote event (with counter) so open panels can catch up. */
   remoteEventTick?: { n: number; event: BoardRealtimeEvent } | null;
-  /** Create several lists at once (template flow). Sequential, order-preserving. */
-  onCreateListsFromTemplate?: (boardId: string, titles: string[]) => Promise<boolean>;
-  /** Create the template's standard labels on the board (skips existing names). */
-  onCreateLabelsFromTemplate?: (boardId: string, names: string[]) => Promise<{ created: number; skipped: number } | null>;
+  /** Apply a board template (lists, labels, swimlanes, card types) atomically. */
+  onApplyTemplate?: (boardId: string, template: ListTemplate) => Promise<TemplateApplyResult | null>;
 }
 
 function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
@@ -225,8 +234,7 @@ export function BoardView({
   onOwnershipTransferred,
   connectionStatus = 'connected',
   remoteEventTick = null,
-  onCreateListsFromTemplate,
-  onCreateLabelsFromTemplate,
+  onApplyTemplate,
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
   const { toast } = useToast();
@@ -463,24 +471,16 @@ export function BoardView({
   };
 
   const handleUseTemplate = async (template: ListTemplate) => {
-    if (!onCreateListsFromTemplate) return;
+    if (!onApplyTemplate) return;
     setIsCreatingTemplate(true);
-    const listsOk = await onCreateListsFromTemplate(board.id, template.lists);
-    let labels: { created: number; skipped: number } | null = null;
-    if (listsOk && onCreateLabelsFromTemplate) {
-      labels = await onCreateLabelsFromTemplate(board.id, template.labels);
-    }
+    const result = await onApplyTemplate(board.id, template);
     setIsCreatingTemplate(false);
-    if (!listsOk) return;
+    if (!result) return;
     setIsTemplatePickerOpen(false);
-    const labelNote = !labels
-      ? ''
-      : labels.created === template.labels.length
-        ? ` and ${template.labels.length} labels`
-        : labels.created > 0
-          ? ` and ${labels.created} new labels`
-          : '';
-    toast({ title: `Template applied: ${template.lists.length} lists${labelNote} created.` });
+    toast({
+      title: 'Template applied',
+      description: describeTemplateApply(template, result),
+    });
   };
 
   const myRoleMeta = ROLE_META[board.myRole];
@@ -843,7 +843,7 @@ export function BoardView({
                         placeholder="Enter list title..." aria-label="New list title" className="h-9 bg-white text-sm" />
                       <Button size="sm" onClick={handleAddList} className="h-9 bg-[#2A2F36] text-white hover:bg-[#1E2329]">Add</Button>
                     </div>
-                  ) : onCreateListsFromTemplate ? (
+                  ) : onApplyTemplate ? (
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
                         <Plus className="h-4 w-4" aria-hidden /> Add your first list
@@ -951,7 +951,7 @@ export function BoardView({
                       </Button>
                     </div>
                   </div>
-                ) : onCreateListsFromTemplate ? (
+                ) : onApplyTemplate ? (
                   <Popover open={isAddListMenuOpen} onOpenChange={setIsAddListMenuOpen}>
                     <PopoverTrigger asChild>
                       <button
@@ -1180,7 +1180,7 @@ export function BoardView({
                 <h3 className="kala-section-label px-1 pb-1">Recent team activity</h3>
                 <ul className="space-y-1">
                   {teamActivity.map((entry) => {
-                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string; cardTypeName?: string };
+                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string; cardTypeName?: string; actorName?: string };
                     const roleLabel = meta.role ? ROLE_META[meta.role as BoardRole]?.label ?? meta.role : null;
                     const text =
                       entry.type === 'member.joined'
@@ -1209,7 +1209,14 @@ export function BoardView({
                                               ? 'Card types were reordered'
                                               : entry.type === 'card_type.deleted'
                                                 ? `Card type ${meta.cardTypeName ?? ''} was deleted`.trim()
-                                                : null;
+                                                : entry.type === 'template.applied'
+                                                  ? [
+                                                      'A template was applied',
+                                                      meta.actorName ? `by ${meta.actorName}` : null,
+                                                    ]
+                                                      .filter(Boolean)
+                                                      .join(' ')
+                                                  : null;
                     if (!text) return null;
                     return (
                       <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F5F4F1] px-3 py-1.5 text-[12px]">

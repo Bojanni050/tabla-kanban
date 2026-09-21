@@ -12,8 +12,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useBoardRealtime } from '@/hooks/use-board-realtime';
-import { api } from '@/lib/api';
-import { TEMPLATE_LABEL_COLORS } from '@/lib/list-templates';
+import { api, type TemplateApplyResult } from '@/lib/api';
+import { TEMPLATE_LABEL_COLORS, templateCardTypeColor, type ListTemplate } from '@/lib/list-templates';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import type {
   BoardWithDetails,
@@ -345,107 +345,37 @@ function App() {
     }
   };
 
-  // Template flow: show all lists immediately, then persist them one by one
-  // through the existing lists API. Sequential awaits keep the template order
-  // because the server assigns each new list the next position.
-  const handleCreateListsFromTemplate = async (boardId: string, titles: string[]): Promise<boolean> => {
-    if (titles.length === 0) return false;
-    const stamp = Date.now();
-    const tempIds = titles.map((_, i) => `temp-list-${stamp}-${i}`);
-    setBoard((prev) => {
-      if (!prev || prev.id !== boardId) return prev;
-      const base = prev.lists.length;
-      return {
-        ...prev,
-        lists: [
-          ...prev.lists,
-          ...titles.map((title, i) => ({
-            id: tempIds[i],
-            title,
-            position: base + i,
-            boardId,
-            cards: [],
-          })),
-        ],
-      };
-    });
-
-    let failed = 0;
-    for (let i = 0; i < titles.length; i++) {
-      try {
-        const created = await api.createList(titles[i], boardId);
-        const tempId = tempIds[i];
-        setBoard((prev) =>
-          prev
-            ? { ...prev, lists: prev.lists.map((l) => (l.id === tempId ? created : l)) }
-            : prev
-        );
-      } catch {
-        failed++;
-      }
-    }
-
-    if (failed > 0) {
-      toast({
-        variant: 'destructive',
-        title: 'Could not create all lists',
-        description: `${failed} of ${titles.length} lists could not be saved. Please try again.`,
-      });
-      return false;
-    }
-    toast({ title: `${titles.length} lists created` });
-    return true;
-  };
-
-  // Template flow: add the template's standard labels to the board through the
-  // existing labels API, skipping any name that already exists on the board.
-  // Existing labels are never modified. Returns how many labels were created,
-  // how many already existed, or null when nothing could be saved.
-  const handleCreateLabelsFromTemplate = async (
+  // Template flow: apply a template (lists, labels, swimlanes and card types)
+  // in one transactional call. The server skips names that already exist on
+  // the board and never modifies existing objects or cards. Returns the
+  // server's created/existing counts, or null when the template could not be
+  // applied at all (nothing is then left half-applied).
+  const handleApplyTemplate = async (
     boardId: string,
-    names: string[]
-  ): Promise<{ created: number; skipped: number } | null> => {
-    if (names.length === 0) return { created: 0, skipped: 0 };
-    const existing = new Set(
-      (board?.id === boardId ? board.labels || [] : []).map((l) => l.name.trim().toLowerCase())
-    );
-    let created = 0;
-    let skipped = 0;
-    let failed = 0;
-    for (const name of names) {
-      if (existing.has(name.trim().toLowerCase())) {
-        skipped++;
-        continue;
-      }
-      const color = TEMPLATE_LABEL_COLORS[name] || '#CE6F51';
-      try {
-        const newLabel = await api.createLabel({ name, color, boardId });
-        created++;
-        setBoard((prev) =>
-          prev && prev.id === boardId
-            ? { ...prev, labels: [...(prev.labels || []), newLabel] }
-            : prev
-        );
-      } catch {
-        failed++;
-      }
-    }
-    if (created === 0 && skipped === 0) {
+    template: ListTemplate
+  ): Promise<TemplateApplyResult | null> => {
+    try {
+      const result = await api.applyBoardTemplate(boardId, {
+        lists: template.lists,
+        labels: template.labels.map((name) => ({
+          name,
+          color: TEMPLATE_LABEL_COLORS[name] || '#CE6F51',
+        })),
+        swimlanes: template.swimlanes || [],
+        cardTypes: (template.cardTypes || []).map((name) => ({
+          name,
+          color: templateCardTypeColor(name),
+        })),
+      });
+      return result;
+    } catch {
       toast({
         variant: 'destructive',
-        title: 'Could not create labels',
-        description: 'The template labels could not be saved. Please try again.',
+        title: 'Could not apply the template',
+        description: 'The template could not be applied. Nothing was changed. Please try again.',
       });
       return null;
     }
-    if (failed > 0) {
-      toast({
-        variant: 'destructive',
-        title: 'Could not create all labels',
-        description: `${failed} of ${names.length} labels could not be saved. Please try again.`,
-      });
-    }
-    return { created, skipped };
   };
 
   const handleAddCard = async (title: string, listId: string) => {
@@ -1816,8 +1746,7 @@ function App() {
           <BoardView
             board={board}
             onAddList={handleAddList}
-            onCreateListsFromTemplate={handleCreateListsFromTemplate}
-            onCreateLabelsFromTemplate={handleCreateLabelsFromTemplate}
+            onApplyTemplate={handleApplyTemplate}
             onAddCard={handleAddCard}
             onDeleteList={handleDeleteList}
             onDeleteCard={handleDeleteCard}
