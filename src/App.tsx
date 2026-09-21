@@ -6,7 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { DEMO_BOARD, DEMO_WORKSPACES } from '@/lib/demo-data';
-import type { BoardWithDetails, Card, List, Workspace } from '@/types';
+import type { BoardWithDetails, Card, ChecklistItem, Label, List, Workspace } from '@/types';
 
 function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -194,8 +194,11 @@ function App() {
     }
   };
 
-  const handleEditCard = async (cardId: string, title: string): Promise<boolean> => {
-    let oldTitle = '';
+  const handleUpdateCard = async (
+    cardId: string,
+    updates: Partial<Card>
+  ): Promise<boolean> => {
+    let oldCard: Card | null = null;
 
     setBoard((prev) => {
       if (!prev) return prev;
@@ -205,8 +208,8 @@ function App() {
           ...l,
           cards: l.cards.map((c) => {
             if (c.id === cardId) {
-              oldTitle = c.title;
-              return { ...c, title };
+              oldCard = { ...c };
+              return { ...c, ...updates };
             }
             return c;
           }),
@@ -215,27 +218,411 @@ function App() {
     });
 
     try {
-      await api.updateCard(cardId, { title });
+      const updated = await api.updateCard(cardId, updates);
+      if (updated) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((l) => ({
+              ...l,
+              cards: l.cards.map((c) => (c.id === cardId ? { ...c, ...updated } : c)),
+            })),
+          };
+        });
+      }
       return true;
     } catch {
       // Revert on failure
+      if (oldCard) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((l) => ({
+              ...l,
+              cards: l.cards.map((c) => (c.id === cardId ? oldCard! : c)),
+            })),
+          };
+        });
+      }
+      toast({
+        variant: 'destructive',
+        title: 'Failed to update card',
+        description: 'Your changes could not be saved. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  const handleEditCard = async (cardId: string, title: string): Promise<boolean> => {
+    return handleUpdateCard(cardId, { title });
+  };
+
+  // Label handlers
+  const handleCreateLabel = async (name: string, color: string): Promise<Label | null> => {
+    if (!board) return null;
+    try {
+      const newLabel = await api.createLabel({ name, color, boardId: board.id });
+      setBoard((prev) => (prev ? { ...prev, labels: [...(prev.labels || []), newLabel] } : prev));
+      return newLabel;
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to create label' });
+      return null;
+    }
+  };
+
+  const handleUpdateLabel = async (labelId: string, name: string, color: string): Promise<boolean> => {
+    try {
+      const updated = await api.updateLabel(labelId, { name, color });
       setBoard((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          lists: prev.lists.map((l) => ({
-            ...l,
-            cards: l.cards.map((c) =>
-              c.id === cardId ? { ...c, title: oldTitle } : c
+          labels: (prev.labels || []).map((l) => (l.id === labelId ? updated : l)),
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) => ({
+              ...c,
+              labels: (c.labels || []).map((l) => (l.id === labelId ? updated : l)),
+            })),
+          })),
+        };
+      });
+      return true;
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to update label' });
+      return false;
+    }
+  };
+
+  const handleDeleteLabel = async (labelId: string): Promise<boolean> => {
+    try {
+      await api.deleteLabel(labelId);
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          labels: (prev.labels || []).filter((l) => l.id !== labelId),
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) => ({
+              ...c,
+              labels: (c.labels || []).filter((l) => l.id !== labelId),
+            })),
+          })),
+        };
+      });
+      return true;
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to delete label' });
+      return false;
+    }
+  };
+
+  const handleAddLabelToCard = async (cardId: string, labelId: string): Promise<boolean> => {
+    const label = board?.labels?.find((l) => l.id === labelId);
+    if (!label) return false;
+
+    // Optimistic update
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.map((c) => {
+            if (c.id === cardId) {
+              const currentLabels = c.labels || [];
+              if (currentLabels.some((l) => l.id === labelId)) return c;
+              return { ...c, labels: [...currentLabels, label] };
+            }
+            return c;
+          }),
+        })),
+      };
+    });
+
+    try {
+      await api.addLabelToCard(cardId, labelId);
+      return true;
+    } catch {
+      // Revert
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) =>
+              c.id === cardId ? { ...c, labels: (c.labels || []).filter((l) => l.id !== labelId) } : c
             ),
           })),
         };
       });
-      toast({
-        variant: 'destructive',
-        title: 'Failed to rename card',
-        description: 'The card could not be renamed. Please try again.',
+      toast({ variant: 'destructive', title: 'Failed to attach label' });
+      return false;
+    }
+  };
+
+  const handleRemoveLabelFromCard = async (cardId: string, labelId: string): Promise<boolean> => {
+    const removedLabel = board?.labels?.find((l) => l.id === labelId);
+
+    // Optimistic update
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.map((c) =>
+            c.id === cardId ? { ...c, labels: (c.labels || []).filter((l) => l.id !== labelId) } : c
+          ),
+        })),
+      };
+    });
+
+    try {
+      await api.removeLabelFromCard(cardId, labelId);
+      return true;
+    } catch {
+      // Revert
+      if (removedLabel) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) =>
+                c.id === cardId ? { ...c, labels: [...(c.labels || []), removedLabel] } : c
+              ),
+            })),
+          };
+        });
+      }
+      toast({ variant: 'destructive', title: 'Failed to remove label' });
+      return false;
+    }
+  };
+
+  // Checklist handlers
+  const handleAddChecklistItem = async (cardId: string, title: string): Promise<boolean> => {
+    try {
+      const newItem = await api.addChecklistItem(cardId, title);
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) =>
+              c.id === cardId
+                ? { ...c, checklistItems: [...(c.checklistItems || []), newItem] }
+                : c
+            ),
+          })),
+        };
       });
+      return true;
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to add checklist item' });
+      return false;
+    }
+  };
+
+  const handleUpdateChecklistItem = async (
+    cardId: string,
+    itemId: string,
+    updates: { title?: string; completed?: boolean }
+  ): Promise<boolean> => {
+    let prevItem: ChecklistItem | null = null;
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.map((c) => {
+            if (c.id === cardId) {
+              const items = (c.checklistItems || []).map((item) => {
+                if (item.id === itemId) {
+                  prevItem = item;
+                  return { ...item, ...updates };
+                }
+                return item;
+              });
+              return { ...c, checklistItems: items };
+            }
+            return c;
+          }),
+        })),
+      };
+    });
+
+    try {
+      const updated = await api.updateChecklistItem(itemId, updates);
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) => {
+              if (c.id === cardId) {
+                return {
+                  ...c,
+                  checklistItems: (c.checklistItems || []).map((item) =>
+                    item.id === itemId ? updated : item
+                  ),
+                };
+              }
+              return c;
+            }),
+          })),
+        };
+      });
+      return true;
+    } catch {
+      if (prevItem) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) => {
+                if (c.id === cardId) {
+                  return {
+                    ...c,
+                    checklistItems: (c.checklistItems || []).map((item) =>
+                      item.id === itemId ? prevItem! : item
+                    ),
+                  };
+                }
+                return c;
+              }),
+            })),
+          };
+        });
+      }
+      toast({ variant: 'destructive', title: 'Failed to update checklist item' });
+      return false;
+    }
+  };
+
+  const handleDeleteChecklistItem = async (cardId: string, itemId: string): Promise<boolean> => {
+    let deletedItem: ChecklistItem | null = null;
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.map((c) => {
+            if (c.id === cardId) {
+              deletedItem = (c.checklistItems || []).find((i) => i.id === itemId) || null;
+              return {
+                ...c,
+                checklistItems: (c.checklistItems || []).filter((i) => i.id !== itemId),
+              };
+            }
+            return c;
+          }),
+        })),
+      };
+    });
+
+    try {
+      await api.deleteChecklistItem(itemId);
+      return true;
+    } catch {
+      if (deletedItem) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) => {
+                if (c.id === cardId) {
+                  return {
+                    ...c,
+                    checklistItems: [...(c.checklistItems || []), deletedItem!],
+                  };
+                }
+                return c;
+              }),
+            })),
+          };
+        });
+      }
+      toast({ variant: 'destructive', title: 'Failed to delete checklist item' });
+      return false;
+    }
+  };
+
+  const handleReorderChecklistItems = async (
+    cardId: string,
+    itemIds: string[]
+  ): Promise<boolean> => {
+    let previousItems: ChecklistItem[] = [];
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.map((c) => {
+            if (c.id === cardId) {
+              previousItems = c.checklistItems || [];
+              const itemMap = new Map(previousItems.map((i) => [i.id, i]));
+              const newOrdered = itemIds
+                .map((id, index) => {
+                  const item = itemMap.get(id);
+                  return item ? { ...item, position: index } : null;
+                })
+                .filter(Boolean) as ChecklistItem[];
+              return { ...c, checklistItems: newOrdered };
+            }
+            return c;
+          }),
+        })),
+      };
+    });
+
+    try {
+      const updated = await api.reorderChecklistItems(cardId, itemIds);
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) =>
+              c.id === cardId ? { ...c, checklistItems: updated } : c
+            ),
+          })),
+        };
+      });
+      return true;
+    } catch {
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) => ({
+            ...list,
+            cards: list.cards.map((c) =>
+              c.id === cardId ? { ...c, checklistItems: previousItems } : c
+            ),
+          })),
+        };
+      });
+      toast({ variant: 'destructive', title: 'Failed to reorder checklist' });
       return false;
     }
   };
@@ -466,10 +853,20 @@ function App() {
             onDeleteList={handleDeleteList}
             onDeleteCard={handleDeleteCard}
             onEditCard={handleEditCard}
+            onUpdateCard={handleUpdateCard}
             onReorderCard={handleReorderCard}
             onMoveCard={handleMoveCard}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
+            onCreateLabel={handleCreateLabel}
+            onUpdateLabel={handleUpdateLabel}
+            onDeleteLabel={handleDeleteLabel}
+            onAddLabelToCard={handleAddLabelToCard}
+            onRemoveLabelFromCard={handleRemoveLabelFromCard}
+            onAddChecklistItem={handleAddChecklistItem}
+            onUpdateChecklistItem={handleUpdateChecklistItem}
+            onDeleteChecklistItem={handleDeleteChecklistItem}
+            onReorderChecklistItems={handleReorderChecklistItems}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

@@ -5,6 +5,8 @@ import boardRoutes from './routes/boards.js';
 import listRoutes from './routes/lists.js';
 import cardRoutes from './routes/cards.js';
 import workspaceRoutes from './routes/workspaces.js';
+import labelRoutes from './routes/labels.js';
+import checklistRoutes from './routes/checklist.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -20,6 +22,8 @@ app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/boards', boardRoutes);
 app.use('/api/lists', listRoutes);
 app.use('/api/cards', cardRoutes);
+app.use('/api/labels', labelRoutes);
+app.use('/api/checklist', checklistRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

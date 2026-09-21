@@ -37,6 +37,7 @@ model Board {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lists     List[]
+  labels    Label[]
 }
 
 model List {
@@ -51,16 +52,54 @@ model List {
   cards Card[]
 }
 
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Label {
+  id        String   @id @default(uuid())
+  name      String
+  color     String
+  boardId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards Card[]
+
+  @@index([boardId])
+}
+
+model ChecklistItem {
+  id        String   @id @default(uuid())
+  title     String
+  completed Boolean  @default(false)
+  position  Float
+  cardId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, position])
+}
+
 model Card {
-  id          String      @id @default(uuid())
+  id          String          @id @default(uuid())
   title       String
   description String?
   position    Float
   listId      String
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  priority    Priority?
+  dueDate     DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
-  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list           List            @relation(fields: [listId], references: [id], onDelete: Cascade)
+  labels         Label[]
+  checklistItems ChecklistItem[]
 
   @@index([listId, position])
 }

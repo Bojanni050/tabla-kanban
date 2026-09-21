@@ -1,4 +1,4 @@
-import type { Board, BoardWithDetails, Card, List, Workspace } from '@/types';
+import type { Board, BoardWithDetails, Card, ChecklistItem, Label, List, Priority, Workspace } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -50,16 +50,73 @@ export const api = {
     request<void>(`/lists/${id}`, { method: 'DELETE' }),
 
   // Cards
-  createCard: (title: string, listId: string) =>
+  getCard: (id: string) => request<Card>(`/cards/${id}`),
+  createCard: (
+    title: string,
+    listId: string,
+    data?: { description?: string | null; priority?: Priority | null; dueDate?: string | null }
+  ) =>
     request<Card>('/cards', {
       method: 'POST',
-      body: JSON.stringify({ title, listId }),
+      body: JSON.stringify({ title, listId, ...data }),
     }),
-  updateCard: (id: string, data: { title?: string; description?: string; position?: number; listId?: string }) =>
+  updateCard: (
+    id: string,
+    data: {
+      title?: string;
+      description?: string | null;
+      position?: number;
+      listId?: string;
+      priority?: Priority | null;
+      dueDate?: string | null;
+    }
+  ) =>
     request<Card>(`/cards/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
   deleteCard: (id: string) =>
     request<void>(`/cards/${id}`, { method: 'DELETE' }),
+
+  // Labels
+  createLabel: (data: { name: string; color: string; boardId: string }) =>
+    request<Label>('/labels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateLabel: (id: string, data: { name?: string; color?: string }) =>
+    request<Label>(`/labels/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteLabel: (id: string) =>
+    request<void>(`/labels/${id}`, { method: 'DELETE' }),
+  addLabelToCard: (cardId: string, labelId: string) =>
+    request<Card>(`/cards/${cardId}/labels`, {
+      method: 'POST',
+      body: JSON.stringify({ labelId }),
+    }),
+  removeLabelFromCard: (cardId: string, labelId: string) =>
+    request<Card>(`/cards/${cardId}/labels/${labelId}`, {
+      method: 'DELETE',
+    }),
+
+  // Checklist
+  addChecklistItem: (cardId: string, title: string) =>
+    request<ChecklistItem>('/checklist', {
+      method: 'POST',
+      body: JSON.stringify({ cardId, title }),
+    }),
+  updateChecklistItem: (id: string, data: { title?: string; completed?: boolean; position?: number }) =>
+    request<ChecklistItem>(`/checklist/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteChecklistItem: (id: string) =>
+    request<void>(`/checklist/${id}`, { method: 'DELETE' }),
+  reorderChecklistItems: (cardId: string, itemIds: string[]) =>
+    request<ChecklistItem[]>('/checklist/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ cardId, itemIds }),
+    }),
 };

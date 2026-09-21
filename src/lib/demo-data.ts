@@ -25,6 +25,7 @@ export const DEMO_BOARD: BoardWithDetails = {
     userId: 'demo-user',
     boards: [],
   },
+  labels: [],
   lists: [
     {
       id: 'list-backlog',

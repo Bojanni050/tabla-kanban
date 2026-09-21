@@ -12,14 +12,23 @@ router.get('/', async (_req: Request, res: Response) => {
   res.json(boards);
 });
 
-// GET /api/boards/:id - get a board with its lists and cards
+// GET /api/boards/:id - get a board with its lists, cards, and labels
 router.get('/:id', async (req: Request, res: Response) => {
   const board = await prisma.board.findUnique({
     where: { id: req.params.id },
     include: {
+      labels: {
+        orderBy: { createdAt: 'asc' },
+      },
       lists: {
         include: {
           cards: {
+            include: {
+              labels: true,
+              checklistItems: {
+                orderBy: { position: 'asc' },
+              },
+            },
             orderBy: { position: 'asc' },
           },
         },
