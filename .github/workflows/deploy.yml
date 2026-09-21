@@ -57,6 +57,14 @@ jobs:
           script: |
             set -e
 
+            # A secret pasted into GitHub often carries a trailing space or newline: trim it.
+            DEPLOY_PATH="$(printf '%s' "$DEPLOY_PATH" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              echo "ERROR: DEPLOY_PATH is not a git checkout on the server (logged in as: $(whoami))."
+              echo "Check the DEPLOY_PATH secret, that the repository is cloned there, and that this user can read it."
+              exit 1
+            fi
             cd "$DEPLOY_PATH"
 
             # Update the code. The untracked .env with the production secrets is left alone.
