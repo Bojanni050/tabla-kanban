@@ -1,0 +1,23 @@
+# Local development only: a PostgreSQL container for `npm run dev` / `tsx watch`.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# It is published on localhost only. The production stack is docker-compose.yml.
+# Credentials default to the local-development values in server/.env.example.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kanban-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kanban}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kanban}
+      POSTGRES_DB: ${POSTGRES_DB:-kanban}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

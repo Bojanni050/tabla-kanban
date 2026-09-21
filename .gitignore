@@ -29,3 +29,7 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Allow the committed environment templates (the patterns above ignore real env files)
+!.env.example
+!server/.env.example

@@ -16,6 +16,21 @@ import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// The session secret must come from the environment in production. The fallback below
+// is only for local development and must never be used to sign real sessions.
+const DEV_SESSION_SECRET = 'tabla-dev-secret-change-in-production';
+const sessionSecret = process.env.SESSION_SECRET || (isProduction ? '' : DEV_SESSION_SECRET);
+if (!sessionSecret || (isProduction && sessionSecret === DEV_SESSION_SECRET)) {
+  console.error('SESSION_SECRET must be set to a long random value when NODE_ENV=production');
+  process.exit(1);
+}
+
+app.disable('x-powered-by');
+// In production the app runs behind a reverse proxy (nginx) that terminates the public
+// connection, so trust its X-Forwarded-* headers (needed for secure cookies over HTTPS).
+if (isProduction) app.set('trust proxy', 1);
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
@@ -24,12 +39,12 @@ app.use(cors({
 app.use(express.json());
 
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'tabla-dev-secret-change-in-production',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: false, // set to true in production with HTTPS
+    secure: process.env.COOKIE_SECURE === 'true', // set COOKIE_SECURE=true when served over HTTPS
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },

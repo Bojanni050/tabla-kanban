@@ -1,16 +1,102 @@
+# Kala - production stack: nginx (frontend + reverse proxy), Express backend, PostgreSQL.
+#
+#   cp .env.example .env    # then fill in the secrets
+#   docker compose up -d
+#
+# Only the frontend publishes a port. The backend and PostgreSQL are reachable solely
+# on the private Docker networks below. For local development (PostgreSQL only, exposed
+# on localhost) use docker-compose.dev.yml instead.
+
+name: kala
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kanban-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: kanban
-      POSTGRES_PASSWORD: kanban
-      POSTGRES_DB: kanban
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    # No `ports:` on purpose - PostgreSQL is not published to the host.
+
+  backend:
+    build:
+      context: ./server
+    image: kala-backend
+    restart: unless-stopped
+    init: true # proper signal handling / zombie reaping for node as PID 1
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      # Built from the PostgreSQL variables above; the host name is the compose service name.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CORS_ORIGIN: ${KALA_PUBLIC_URL:-http://localhost:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy # wait until PostgreSQL accepts connections
+    networks:
+      - edge
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s # covers running the database migrations on first start
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: .
+      args:
+        VITE_API_URL: /api # same-origin: nginx proxies /api to the backend
+    image: kala-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${KALA_PORT:-8080}:8080"
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  # nginx <-> backend. The only network with a published port.
+  edge: {}
+  # backend <-> postgres. `internal: true` blocks all traffic to and from the outside world.
+  internal:
+    internal: true
 
 volumes:
   postgres_data:

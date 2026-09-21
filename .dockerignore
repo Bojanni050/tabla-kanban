@@ -1,0 +1,40 @@
+# Build context for the FRONTEND image (repository root).
+# The backend has its own context and .dockerignore in server/.
+
+# Dependencies and build artifacts
+node_modules
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Version control
+.git
+.gitignore
+.gitattributes
+.gitconfig
+
+# Local configuration and secrets. Vite would bake VITE_* values from these files into
+# the bundle, so they must never reach the build.
+.env
+.env.*
+*.env
+!.env.example
+
+# The backend is built from its own context
+server
+
+# Docker / deployment files
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Unrelated development files
+supabase
+plan
+.bolt
+.emergent
+.vscode
+.idea
+.DS_Store
+*.log
+README.md
