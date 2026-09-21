@@ -1,22 +1,49 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
-import { authorizeBoard, authorizeWorkspace, parseName } from '../middleware/ownership.js';
+import { authorizeBoard, authorizeWorkspace, parseName } from '../middleware/access.js';
 
 const router = Router();
 
-// GET /api/boards - list boards in the authenticated user's workspaces
+// GET /api/boards - list every board the authenticated user is a member of
 router.get('/', async (req: Request, res: Response) => {
   const boards = await prisma.board.findMany({
-    where: { workspace: { userId: req.userId } },
+    where: { members: { some: { userId: req.userId } } },
     include: { workspace: true },
     orderBy: { createdAt: 'asc' },
   });
   res.json(boards);
 });
 
+// GET /api/boards/shared - boards the user belongs to but does not own
+router.get('/shared', async (req: Request, res: Response) => {
+  const memberships = await prisma.boardMember.findMany({
+    where: { userId: req.userId, role: { not: 'OWNER' } },
+    include: {
+      board: {
+        include: {
+          members: {
+            where: { role: 'OWNER' },
+            include: { user: { select: { name: true, email: true } } },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json(
+    memberships.map((m) => ({
+      id: m.board.id,
+      name: m.board.name,
+      workspaceId: m.board.workspaceId,
+      role: m.role,
+      owner: m.board.members[0]?.user ?? null,
+    }))
+  );
+});
+
 // GET /api/boards/:id - get a board with its lists, cards, and labels
 router.get('/:id', async (req: Request, res: Response) => {
-  if (!(await authorizeBoard(req, res, req.params.id))) return;
+  if (!(await authorizeBoard(req, res, req.params.id, 'view'))) return;
   const board = await prisma.board.findUnique({
     where: { id: req.params.id },
     include: {
@@ -45,7 +72,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     res.status(404).json({ error: 'Board not found' });
     return;
   }
-  res.json(board);
+  res.json({ ...board, myRole: req.boardRole });
 });
 
 // GET /api/boards/:id/archived - get all archived cards for a board
@@ -84,15 +111,16 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
   if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  // The creator becomes the board's owner
   const board = await prisma.board.create({
-    data: { name, workspaceId },
+    data: { name, workspaceId, members: { create: { userId: req.userId!, role: 'OWNER' } } },
   });
   res.status(201).json(board);
 });
 
 // PATCH /api/boards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
-  if (!(await authorizeBoard(req, res, req.params.id))) return;
+  if (!(await authorizeBoard(req, res, req.params.id, 'manage'))) return;
   const name = parseName(req.body?.name);
   if (!name) {
     res.status(400).json({ error: 'name is required (max 100 characters)' });
@@ -107,7 +135,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 // DELETE /api/boards/:id
 router.delete('/:id', async (req: Request, res: Response) => {
-  if (!(await authorizeBoard(req, res, req.params.id))) return;
+  if (!(await authorizeBoard(req, res, req.params.id, 'owner'))) return;
   await prisma.board.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });

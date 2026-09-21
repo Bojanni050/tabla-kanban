@@ -14,6 +14,7 @@ import {
   Trash2,
   Calendar as CalendarIcon,
   MoreHorizontal,
+  Users,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
 import type { BoardWithDetails, Card, Label, Priority } from '@/types';
@@ -42,6 +43,8 @@ import {
 import { cn } from '@/lib/utils';
 import { ListView } from './ListView';
 import { CardDetailModal } from './CardDetailModal';
+import { MembersDialog } from './MembersDialog';
+import { canEditBoard } from '@/lib/roles';
 import {
   Dialog,
   DialogContent,
@@ -107,6 +110,10 @@ interface BoardViewProps {
   // Archiving
   onArchiveCard?: (cardId: string) => Promise<boolean>;
   onRestoreCard?: (cardId: string) => Promise<boolean>;
+  // Sharing
+  currentUserId: string;
+  onLeftBoard: () => void;
+  onOwnershipTransferred: () => void;
 }
 
 export function BoardView({
@@ -132,7 +139,13 @@ export function BoardView({
   onReorderChecklistItems,
   onArchiveCard,
   onRestoreCard,
+  currentUserId,
+  onLeftBoard,
+  onOwnershipTransferred,
 }: BoardViewProps) {
+  // UI hint only; the server enforces the role on every request
+  const canEdit = canEditBoard(board.myRole);
+  const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
   const [isAddingList, setIsAddingList] = useState(false);
@@ -328,6 +341,11 @@ export function BoardView({
           <span className="text-sm text-muted-foreground">
             {board.workspace?.name}
           </span>
+          {!canEdit && (
+            <Badge variant="secondary" className="font-normal text-xs">
+              View only
+            </Badge>
+          )}
         </div>
 
         {/* Header controls: Search, Filter Popover, Labels */}
@@ -469,6 +487,17 @@ export function BoardView({
               </div>
             </PopoverContent>
           </Popover>
+
+          {/* Share / members button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsMembersOpen(true)}
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground bg-card"
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span>Share</span>
+          </Button>
 
           {/* Board labels management button */}
           <Button
@@ -616,10 +645,12 @@ export function BoardView({
               onReorderCard={onReorderCard}
               onMoveCard={onMoveCard}
               onOpenCard={(c) => setSelectedCardId(c.id)}
+              readOnly={!canEdit}
             />
           ))}
 
           {/* Add list */}
+          {canEdit && (
           <div className="w-72 shrink-0">
             {isAddingList ? (
               <div className="rounded-xl border border-border bg-muted/40 p-2.5">
@@ -664,6 +695,7 @@ export function BoardView({
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -692,6 +724,17 @@ export function BoardView({
         onDeleteChecklistItem={onDeleteChecklistItem}
         onReorderChecklistItems={onReorderChecklistItems}
         onArchiveCard={onArchiveCard}
+        readOnly={!canEdit}
+      />
+
+      <MembersDialog
+        boardId={board.id}
+        boardName={board.name}
+        open={isMembersOpen}
+        onOpenChange={setIsMembersOpen}
+        currentUserId={currentUserId}
+        onLeft={onLeftBoard}
+        onOwnershipTransferred={onOwnershipTransferred}
       />
 
       {/* Board Labels Management Dialog */}
@@ -712,7 +755,7 @@ export function BoardView({
                 >
                   {label.name}
                 </span>
-                {onDeleteLabel && (
+                {onDeleteLabel && canEdit && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -778,6 +821,7 @@ export function BoardView({
                       </p>
                     </div>
 
+                    {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
                         variant="outline"
@@ -800,6 +844,7 @@ export function BoardView({
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
+                    )}
                   </div>
 
                   {/* Badges: Labels, Priority, Due Date */}

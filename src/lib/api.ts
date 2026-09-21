@@ -1,4 +1,20 @@
-import type { Board, BoardWithDetails, Card, ChecklistItem, Label, List, Priority, User, Workspace } from '@/types';
+import type {
+  AssignableRole,
+  Board,
+  BoardInvitation,
+  BoardMembersResponse,
+  BoardRole,
+  BoardWithDetails,
+  Card,
+  ChecklistItem,
+  Label,
+  List,
+  MyInvitation,
+  Priority,
+  SharedBoard,
+  User,
+  Workspace,
+} from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -52,6 +68,7 @@ export const api = {
 
   // Boards
   getBoards: () => request<Board[]>('/boards'),
+  getSharedBoards: () => request<SharedBoard[]>('/boards/shared'),
   getBoard: (id: string) => request<BoardWithDetails>(`/boards/${id}`),
   createBoard: (name: string, workspaceId: string) =>
     request<Board>('/boards', {
@@ -65,6 +82,46 @@ export const api = {
     }),
   deleteBoard: (id: string) =>
     request<void>(`/boards/${id}`, { method: 'DELETE' }),
+
+  // Board members and sharing
+  getBoardMembers: (boardId: string) =>
+    request<BoardMembersResponse>(`/boards/${boardId}/members`),
+  inviteToBoard: (boardId: string, data: { email: string; role: AssignableRole }) =>
+    request<BoardInvitation>(`/boards/${boardId}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  revokeInvitation: (boardId: string, invitationId: string) =>
+    request<void>(`/boards/${boardId}/invitations/${invitationId}`, { method: 'DELETE' }),
+  updateMemberRole: (boardId: string, userId: string, role: AssignableRole) =>
+    request<{ userId: string; role: BoardRole }>(`/boards/${boardId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+  removeMember: (boardId: string, userId: string) =>
+    request<void>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
+  leaveBoard: (boardId: string) =>
+    request<void>(`/boards/${boardId}/leave`, { method: 'POST', body: '{}' }),
+  transferOwnership: (boardId: string, userId: string) =>
+    request<{ message: string }>(`/boards/${boardId}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    }),
+
+  // Invitations (invitee side)
+  getMyInvitations: () => request<MyInvitation[]>('/invitations'),
+  getInvitation: (token: string) =>
+    request<MyInvitation>(`/invitations/${encodeURIComponent(token)}`),
+  acceptInvitation: (token: string) =>
+    request<{ boardId: string; role: BoardRole }>(
+      `/invitations/${encodeURIComponent(token)}/accept`,
+      { method: 'POST', body: '{}' }
+    ),
+  declineInvitation: (token: string) =>
+    request<void>(`/invitations/${encodeURIComponent(token)}/decline`, {
+      method: 'POST',
+      body: '{}',
+    }),
 
   // Lists
   createList: (title: string, boardId: string) =>

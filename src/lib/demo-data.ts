@@ -18,6 +18,7 @@ export const DEMO_WORKSPACES: Workspace[] = [
 export const DEMO_BOARD: BoardWithDetails = {
   id: 'demo-board',
   name: 'Product Roadmap',
+  myRole: 'OWNER',
   workspaceId: 'demo-workspace',
   workspace: {
     id: 'demo-workspace',

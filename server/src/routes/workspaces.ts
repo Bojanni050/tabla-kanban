@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
-import { authorizeWorkspace, parseName } from '../middleware/ownership.js';
+import { authorizeWorkspace, parseName } from '../middleware/access.js';
 
 const router = Router();
 

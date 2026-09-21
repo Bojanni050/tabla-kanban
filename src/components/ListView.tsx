@@ -34,9 +34,10 @@ interface CardItemProps {
   onDelete: (cardId: string) => Promise<boolean>;
   onEdit: (cardId: string, title: string) => Promise<boolean>;
   onClick?: () => void;
+  readOnly?: boolean;
 }
 
-function CardItem({ card, onDelete, onEdit, onClick }: CardItemProps) {
+function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -194,6 +195,7 @@ function CardItem({ card, onDelete, onEdit, onClick }: CardItemProps) {
           </div>
         )}
 
+        {!readOnly && (
         <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
             variant="ghost"
@@ -220,6 +222,7 @@ function CardItem({ card, onDelete, onEdit, onClick }: CardItemProps) {
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
+        )}
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => {
@@ -298,6 +301,8 @@ interface ListViewProps {
   onMoveCard: (cardId: string, fromListId: string, toListId: string, toIndex: number) => void;
   onOpenCard: (card: Card) => void;
   isFiltered?: boolean;
+  // Viewers can look but not change anything
+  readOnly?: boolean;
 }
 
 // Drag state shared across lists so a card can be dropped into another list
@@ -313,6 +318,7 @@ export function ListView({
   onMoveCard,
   onOpenCard,
   isFiltered,
+  readOnly,
 }: ListViewProps) {
   const [isAddingCard, setIsAddingCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -431,12 +437,16 @@ export function ListView({
           />
         ) : (
           <button
-            onClick={() => setIsEditingTitle(true)}
-            className="flex-1 truncate rounded px-1 text-left text-sm font-semibold text-foreground hover:bg-accent/50"
+            onClick={() => !readOnly && setIsEditingTitle(true)}
+            className={cn(
+              'flex-1 truncate rounded px-1 text-left text-sm font-semibold text-foreground',
+              readOnly ? 'cursor-default' : 'hover:bg-accent/50'
+            )}
           >
             {list.title}
           </button>
         )}
+        {!readOnly && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground">
@@ -453,6 +463,7 @@ export function ListView({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </div>
 
       {/* Cards */}
@@ -472,7 +483,7 @@ export function ListView({
               data-testid={`drop-indicator-${list.id}-${index}`}
             />
             <div
-              draggable
+              draggable={!readOnly}
               onDragStart={(e) => {
                 isDraggingRef.current = true;
                 activeDrag = { cardId: card.id, fromListId: list.id };
@@ -490,7 +501,7 @@ export function ListView({
               onDragOver={(e) => handleCardDragOver(e, index)}
               onDrop={handleDrop}
               className={cn(
-                'cursor-grab active:cursor-grabbing',
+                !readOnly && 'cursor-grab active:cursor-grabbing',
                 draggingId === card.id && 'opacity-40'
               )}
               data-testid={`card-draggable-${card.id}`}
@@ -499,6 +510,7 @@ export function ListView({
                 card={card}
                 onDelete={onDeleteCard}
                 onEdit={onEditCard}
+                readOnly={readOnly}
                 onClick={() => {
                   if (!isDraggingRef.current) {
                     onOpenCard(card);
@@ -523,6 +535,7 @@ export function ListView({
       </div>
 
       {/* Add card */}
+      {!readOnly && (
       <div className="p-2.5">
         {isAddingCard ? (
           <div className="flex flex-col gap-2">
@@ -570,6 +583,7 @@ export function ListView({
           </button>
         )}
       </div>
+      )}
     </div>
   );
 }

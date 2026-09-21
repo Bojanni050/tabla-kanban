@@ -15,7 +15,9 @@ model User {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  workspaces Workspace[]
+  workspaces        Workspace[]
+  boardMemberships  BoardMember[]
+  sentInvitations   Invitation[]
 }
 
 model Workspace {
@@ -36,9 +38,55 @@ model Board {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  lists     List[]
-  labels    Label[]
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lists       List[]
+  labels      Label[]
+  members     BoardMember[]
+  invitations Invitation[]
+}
+
+enum BoardRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// A user's membership of a board. Exactly one member per board has the OWNER role.
+model BoardMember {
+  id        String    @id @default(uuid())
+  boardId   String
+  userId    String
+  role      BoardRole
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@index([userId])
+}
+
+// An invitation to join a board. The email is stored lower-cased. An invitation is
+// single-use: it is pending until acceptedAt or declinedAt is set, or expiresAt passes.
+model Invitation {
+  id          String    @id @default(uuid())
+  boardId     String
+  email       String
+  invitedById String
+  role        BoardRole
+  token       String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  board     Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  invitedBy User  @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([email])
 }
 
 model List {

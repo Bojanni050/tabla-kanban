@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Briefcase, LayoutDashboard, Plus, ChevronRight, LogOut, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Briefcase, Check, LayoutDashboard, Plus, ChevronRight, LogOut, MoreHorizontal, Pencil, Trash2, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Workspace, Board, User } from '@/types';
+import type { Workspace, Board, User, SharedBoard, MyInvitation } from '@/types';
+import { ROLE_LABELS, displayName } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +25,10 @@ import {
 
 interface SidebarProps {
   workspaces: Workspace[];
+  sharedBoards: SharedBoard[];
+  invitations: MyInvitation[];
+  onAcceptInvitation: (token: string) => void;
+  onDeclineInvitation: (token: string) => void;
   activeWorkspaceId: string | null;
   activeBoardId: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -77,6 +83,10 @@ function RowMenu({ label, onRename, onDelete }: RowMenuProps) {
 
 export function Sidebar({
   workspaces,
+  sharedBoards,
+  invitations,
+  onAcceptInvitation,
+  onDeclineInvitation,
   activeWorkspaceId,
   activeBoardId,
   onSelectWorkspace,
@@ -264,7 +274,7 @@ export function Sidebar({
         {activeWorkspace && (
           <div className="mt-4 px-2">
             <p className="truncate px-2 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Boards in {activeWorkspace.name}
+              My Boards &middot; {activeWorkspace.name}
             </p>
 
             {activeWorkspace.boards.map((board: Board) => {
@@ -322,6 +332,34 @@ export function Sidebar({
             )}
           </div>
         )}
+
+        {/* Boards other people shared with the user */}
+        {sharedBoards.length > 0 && (
+          <div className="mt-4 px-2">
+            <p className="px-2 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Shared with me
+            </p>
+            {sharedBoards.map((board) => (
+              <button
+                key={board.id}
+                onClick={() => onSelectBoard(board.id)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                  board.id === activeBoardId
+                    ? 'bg-accent font-medium text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                )}
+                title={board.owner ? `Owned by ${displayName(board.owner)}` : undefined}
+              >
+                <Users className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{board.name}</span>
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {ROLE_LABELS[board.role]}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
@@ -352,14 +390,59 @@ export function Sidebar({
       {user && (
         <div className="border-t border-border p-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
-                {user.email ? user.email[0].toUpperCase() : 'U'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-foreground">{user.email}</p>
-              </div>
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1 text-left transition-colors hover:bg-accent/50"
+                  title="Account and invitations"
+                >
+                  <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
+                    {user.email ? user.email[0].toUpperCase() : 'U'}
+                    {invitations.length > 0 && (
+                      <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-semibold text-primary-foreground">
+                        {invitations.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-foreground">{user.email}</p>
+                  </div>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" className="w-72 p-3">
+                <p className="truncate text-xs text-muted-foreground">Signed in as</p>
+                <p className="truncate text-sm font-medium text-foreground">{user.email}</p>
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="pb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Invitations {invitations.length > 0 && `(${invitations.length})`}
+                  </p>
+                  {invitations.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No pending invitations.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {invitations.map((invitation) => (
+                        <div key={invitation.token} className="rounded-lg border border-border p-2">
+                          <p className="truncate text-sm font-medium text-foreground">{invitation.board.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            From {displayName(invitation.invitedBy)} &middot; {ROLE_LABELS[invitation.role]}
+                          </p>
+                          <div className="mt-2 flex gap-1.5">
+                            <Button size="sm" className="h-7 flex-1 gap-1 text-xs" onClick={() => onAcceptInvitation(invitation.token)}>
+                              <Check className="h-3 w-3" />
+                              Accept
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 flex-1 gap-1 text-xs" onClick={() => onDeclineInvitation(invitation.token)}>
+                              <X className="h-3 w-3" />
+                              Decline
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
             {onLogout && (
               <Button
                 variant="ghost"

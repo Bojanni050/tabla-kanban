@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
-import { authorizeBoard, authorizeList } from '../middleware/ownership.js';
+import { authorizeBoard, authorizeList } from '../middleware/access.js';
 
 const router = Router();
 
@@ -11,7 +11,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'title and boardId are required' });
     return;
   }
-  if (!(await authorizeBoard(req, res, boardId))) return;
+  if (!(await authorizeBoard(req, res, boardId, 'edit'))) return;
 
   // Calculate next position
   const lastList = await prisma.list.findFirst({
@@ -29,7 +29,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PATCH /api/lists/:id
 router.patch('/:id', async (req: Request, res: Response) => {
-  if (!(await authorizeList(req, res, req.params.id))) return;
+  if (!(await authorizeList(req, res, req.params.id, 'edit'))) return;
   const { title, position } = req.body;
   const list = await prisma.list.update({
     where: { id: req.params.id },
@@ -44,7 +44,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 // DELETE /api/lists/:id
 router.delete('/:id', async (req: Request, res: Response) => {
-  if (!(await authorizeList(req, res, req.params.id))) return;
+  if (!(await authorizeList(req, res, req.params.id, 'edit'))) return;
   await prisma.list.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });

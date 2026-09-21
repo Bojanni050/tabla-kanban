@@ -10,9 +10,11 @@ import type { User } from '@/types';
 
 interface AuthPageProps {
   onSuccess: (user: User) => void;
+  // Shown when the user arrived through a board invitation link
+  hasInvitation?: boolean;
 }
 
-export function AuthPage({ onSuccess }: AuthPageProps) {
+export function AuthPage({ onSuccess, hasInvitation }: AuthPageProps) {
   const [tab, setTab] = useState<'login' | 'register'>('login');
   
   // Login form state
@@ -100,7 +102,9 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Tabla</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to manage your workspaces and boards
+            {hasInvitation
+              ? 'You have been invited to a board. Sign in, or register, with the email address the invitation was sent to.'
+              : 'Sign in to manage your workspaces and boards'}
           </p>
         </div>
 

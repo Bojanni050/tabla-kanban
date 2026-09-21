@@ -91,6 +91,8 @@ interface CardDetailModalProps {
   onUpdateChecklistItem: (cardId: string, itemId: string, updates: { title?: string; completed?: boolean }) => Promise<boolean>;
   onDeleteChecklistItem: (cardId: string, itemId: string) => Promise<boolean>;
   onReorderChecklistItems: (cardId: string, itemIds: string[]) => Promise<boolean>;
+  // Viewers can read a card but not change it
+  readOnly?: boolean;
 }
 
 export function CardDetailModal({
@@ -111,6 +113,7 @@ export function CardDetailModal({
   onUpdateChecklistItem,
   onDeleteChecklistItem,
   onReorderChecklistItems,
+  readOnly = false,
 }: CardDetailModalProps) {
   // Local state for editing fields
   const [title, setTitle] = useState('');
@@ -440,6 +443,8 @@ export function CardDetailModal({
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DialogContent className="max-w-2xl gap-0 p-0 overflow-hidden sm:rounded-xl border border-border shadow-2xl bg-background max-h-[90vh] flex flex-col">
+          {/* A disabled fieldset disables every button and input inside it for read-only viewers */}
+          <fieldset disabled={readOnly} className="contents">
           {/* Header */}
           <DialogHeader className="p-6 pb-4 border-b border-border/70 space-y-2 shrink-0">
             <div className="flex items-start justify-between gap-4">
@@ -462,9 +467,9 @@ export function CardDetailModal({
                   />
                 ) : (
                   <DialogTitle
-                    onClick={() => setIsEditingTitle(true)}
+                    onClick={() => !readOnly && setIsEditingTitle(true)}
                     className="text-xl font-semibold tracking-tight text-foreground cursor-pointer rounded px-1.5 py-1 -ml-1.5 hover:bg-muted/60 transition-colors"
-                    title="Click to edit title"
+                    title={readOnly ? undefined : 'Click to edit title'}
                   >
                     {title || card.title}
                   </DialogTitle>
@@ -544,7 +549,7 @@ export function CardDetailModal({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setIsEditingDescription(true)}
+                      onClick={() => !readOnly && setIsEditingDescription(true)}
                       className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                     >
                       Edit
@@ -595,7 +600,7 @@ export function CardDetailModal({
                   </div>
                 ) : (
                   <div
-                    onClick={() => setIsEditingDescription(true)}
+                    onClick={() => !readOnly && setIsEditingDescription(true)}
                     className={cn(
                       'rounded-lg p-3 text-sm transition-colors cursor-pointer border border-transparent',
                       description
@@ -671,6 +676,7 @@ export function CardDetailModal({
                       ) : (
                         <span
                           onClick={() => {
+                            if (readOnly) return;
                             setEditingItemId(item.id);
                             setEditingItemTitle(item.title);
                           }}
@@ -1146,6 +1152,7 @@ export function CardDetailModal({
               </div>
             </div>
           </div>
+          </fieldset>
         </DialogContent>
       </Dialog>
 

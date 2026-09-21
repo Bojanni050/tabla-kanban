@@ -3,15 +3,35 @@ import { Loader2 } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { BoardView } from '@/components/BoardView';
 import { AuthPage } from '@/components/AuthPage';
+import { InvitePage } from '@/components/InvitePage';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import type { BoardWithDetails, Card, ChecklistItem, Label, List, User, Workspace } from '@/types';
+import type {
+  BoardWithDetails,
+  Card,
+  ChecklistItem,
+  Label,
+  List,
+  MyInvitation,
+  SharedBoard,
+  User,
+  Workspace,
+} from '@/types';
+
+// Invitation links look like /invite/<token>
+const readInviteToken = () => {
+  const match = window.location.pathname.match(/^\/invite\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+};
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [sharedBoards, setSharedBoards] = useState<SharedBoard[]>([]);
+  const [invitations, setInvitations] = useState<MyInvitation[]>([]);
+  const [inviteToken, setInviteToken] = useState<string | null>(readInviteToken);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardWithDetails | null>(null);
@@ -35,21 +55,34 @@ function App() {
     checkAuth();
   }, []);
 
-  // Load workspaces
+  // Fetch everything the sidebar shows: own workspaces, boards shared with the user and
+  // pending invitations.
+  const fetchNavigation = useCallback(async () => {
+    const [ws, shared, invites] = await Promise.all([
+      api.getWorkspaces(),
+      api.getSharedBoards(),
+      api.getMyInvitations(),
+    ]);
+    setWorkspaces(ws);
+    setSharedBoards(shared);
+    setInvitations(invites);
+    return { workspaces: ws, shared };
+  }, []);
+
+  // Initial load: select the first workspace and its first board (or a shared board)
   const loadWorkspaces = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.getWorkspaces();
-      setWorkspaces(data);
-      const first = data[0];
+      const { workspaces: ws, shared } = await fetchNavigation();
+      const first = ws[0];
       setActiveWorkspaceId(first?.id ?? null);
-      setActiveBoardId(first?.boards?.[0]?.id ?? null);
+      setActiveBoardId(first?.boards?.[0]?.id ?? shared[0]?.id ?? null);
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchNavigation]);
 
   // Load board details
   const loadBoard = useCallback(async (boardId: string) => {
@@ -66,6 +99,8 @@ function App() {
       loadWorkspaces();
     } else {
       setWorkspaces([]);
+      setSharedBoards([]);
+      setInvitations([]);
       setActiveWorkspaceId(null);
       setActiveBoardId(null);
       setBoard(null);
@@ -879,6 +914,106 @@ function App() {
     }
   };
 
+  // Roles and access can change while the tab is in the background (someone else changed our
+  // role, removed us, or invited us). Re-sync when the user comes back to the tab.
+  useEffect(() => {
+    if (!user) return;
+    const onFocus = async () => {
+      try {
+        const { workspaces: ws, shared } = await fetchNavigation();
+        if (!activeBoardId) return;
+        const stillListed =
+          ws.some((w) => w.boards.some((b) => b.id === activeBoardId)) ||
+          shared.some((b) => b.id === activeBoardId);
+        if (!stillListed) {
+          setActiveBoardId(ws.find((w) => w.id === activeWorkspaceId)?.boards[0]?.id ?? shared[0]?.id ?? null);
+          toast({ title: 'You no longer have access to that board' });
+          return;
+        }
+        const fresh = await api.getBoard(activeBoardId);
+        setBoard((prev) => (prev && prev.myRole !== fresh.myRole ? fresh : prev));
+      } catch {
+        // Ignore transient errors; the next action will surface them
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [user, activeBoardId, activeWorkspaceId, fetchNavigation, toast]);
+
+  // Invitation handlers
+  const leaveInvitePage = () => {
+    window.history.replaceState(null, '', '/');
+    setInviteToken(null);
+  };
+
+  const handleInvitationAccepted = async (boardId: string) => {
+    leaveInvitePage();
+    try {
+      await fetchNavigation();
+    } catch {
+      // The board is still reachable by id below
+    }
+    setActiveBoardId(boardId);
+  };
+
+  const handleInvitePageDone = async () => {
+    leaveInvitePage();
+    try {
+      await fetchNavigation();
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleAcceptInvitation = async (token: string) => {
+    try {
+      const { boardId } = await api.acceptInvitation(token);
+      await fetchNavigation();
+      setActiveBoardId(boardId);
+      toast({ title: 'Invitation accepted' });
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not accept invitation',
+        description: e instanceof Error ? e.message : undefined,
+      });
+      fetchNavigation().catch(() => {});
+    }
+  };
+
+  const handleDeclineInvitation = async (token: string) => {
+    try {
+      await api.declineInvitation(token);
+      setInvitations((prev) => prev.filter((i) => i.token !== token));
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not decline invitation',
+        description: e instanceof Error ? e.message : undefined,
+      });
+      fetchNavigation().catch(() => {});
+    }
+  };
+
+  // Sharing handlers
+  const handleLeftBoard = async () => {
+    try {
+      const { workspaces: ws, shared } = await fetchNavigation();
+      setActiveBoardId(ws.find((w) => w.id === activeWorkspaceId)?.boards[0]?.id ?? shared[0]?.id ?? null);
+    } catch {
+      setActiveBoardId(null);
+    }
+  };
+
+  const handleOwnershipTransferred = async () => {
+    try {
+      await fetchNavigation();
+      if (activeBoardId) await loadBoard(activeBoardId);
+    } catch {
+      // ignore
+    }
+  };
+
   // Workspace handlers
   const handleSelectWorkspace = (workspaceId: string) => {
     const workspace = workspaces.find((w) => w.id === workspaceId);
@@ -985,6 +1120,8 @@ function App() {
     } finally {
       setUser(null);
       setWorkspaces([]);
+      setSharedBoards([]);
+      setInvitations([]);
       setActiveWorkspaceId(null);
       setActiveBoardId(null);
       setBoard(null);
@@ -1003,7 +1140,24 @@ function App() {
   if (!user) {
     return (
       <>
-        <AuthPage onSuccess={(authenticatedUser) => setUser(authenticatedUser)} />
+        <AuthPage
+          onSuccess={(authenticatedUser) => setUser(authenticatedUser)}
+          hasInvitation={inviteToken !== null}
+        />
+        <Toaster />
+      </>
+    );
+  }
+
+  if (inviteToken) {
+    return (
+      <>
+        <InvitePage
+          token={inviteToken}
+          user={user}
+          onAccepted={handleInvitationAccepted}
+          onDone={handleInvitePageDone}
+        />
         <Toaster />
       </>
     );
@@ -1021,6 +1175,10 @@ function App() {
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         workspaces={workspaces}
+        sharedBoards={sharedBoards}
+        invitations={invitations}
+        onAcceptInvitation={handleAcceptInvitation}
+        onDeclineInvitation={handleDeclineInvitation}
         activeWorkspaceId={activeWorkspaceId}
         activeBoardId={activeBoardId}
         onSelectWorkspace={handleSelectWorkspace}
@@ -1061,6 +1219,9 @@ function App() {
             onReorderChecklistItems={handleReorderChecklistItems}
             onArchiveCard={handleArchiveCard}
             onRestoreCard={handleRestoreCard}
+            currentUserId={user.id}
+            onLeftBoard={handleLeftBoard}
+            onOwnershipTransferred={handleOwnershipTransferred}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

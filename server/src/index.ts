@@ -4,6 +4,8 @@ import cors from 'cors';
 import session from 'express-session';
 import authRoutes from './routes/auth.js';
 import boardRoutes from './routes/boards.js';
+import boardMemberRoutes from './routes/boardMembers.js';
+import invitationRoutes from './routes/invitations.js';
 import listRoutes from './routes/lists.js';
 import cardRoutes from './routes/cards.js';
 import workspaceRoutes from './routes/workspaces.js';
@@ -42,6 +44,8 @@ app.use('/api/auth', authRoutes);
 // Protected routes
 app.use('/api/workspaces', requireAuth, workspaceRoutes);
 app.use('/api/boards', requireAuth, boardRoutes);
+app.use('/api/boards', requireAuth, boardMemberRoutes);
+app.use('/api/invitations', requireAuth, invitationRoutes);
 app.use('/api/lists', requireAuth, listRoutes);
 app.use('/api/cards', requireAuth, cardRoutes);
 app.use('/api/labels', requireAuth, labelRoutes);

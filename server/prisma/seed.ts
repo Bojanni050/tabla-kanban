@@ -36,6 +36,7 @@ async function main() {
     data: {
       name: 'Product Roadmap',
       workspaceId: workspace.id,
+      members: { create: { userId: user.id, role: 'OWNER' } },
     },
   });
 
