@@ -28,6 +28,9 @@ export type RealtimeEventType =
   | 'swimlane.created'
   | 'swimlane.updated'
   | 'swimlane.deleted'
+  | 'card_type.created'
+  | 'card_type.updated'
+  | 'card_type.deleted'
   | 'member.added'
   | 'member.updated'
   | 'member.removed';

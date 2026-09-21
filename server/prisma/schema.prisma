@@ -76,6 +76,7 @@ model Board {
   invitations Invitation[]
   activities  BoardActivity[]
   swimlanes   Swimlane[]
+  cardTypes   CardType[]
 }
 
 enum BoardRole {
@@ -156,6 +157,23 @@ model Swimlane {
   @@index([boardId, position])
 }
 
+// A board-level type describing what a card IS (e.g. Task, Feature, Bug).
+// Strictly separate from labels: a card has at most one optional type.
+model CardType {
+  id        String   @id @default(uuid())
+  name      String
+  color     String
+  position  Float
+  boardId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards Card[]
+
+  @@index([boardId, position])
+}
+
 model Label {
   id        String   @id @default(uuid())
   name      String
@@ -195,11 +213,13 @@ model Card {
   archived    Boolean         @default(false)
   assigneeId  String?
   swimlaneId  String?
+  cardTypeId  String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
   list           List            @relation(fields: [listId], references: [id], onDelete: Cascade)
   swimlane       Swimlane?       @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
+  cardType       CardType?       @relation(fields: [cardTypeId], references: [id], onDelete: SetNull)
   labels         Label[]
   checklistItems ChecklistItem[]
   assignee       User?           @relation("CardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
@@ -209,6 +229,7 @@ model Card {
   @@index([archived])
   @@index([assigneeId])
   @@index([swimlaneId])
+  @@index([cardTypeId])
 }
 
 // One row per board-level change worth surfacing (e.g. team changes).

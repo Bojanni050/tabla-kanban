@@ -23,7 +23,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
-import type { BoardMember, Card, Label, Priority } from '@/types';
+import type { BoardMember, Card, CardType, Label, Priority } from '@/types';
 import { MemberAvatar } from './MemberAvatar';
 import { displayName as memberDisplayName } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
@@ -81,6 +81,7 @@ interface CardDetailModalProps {
   card: Card | null;
   listTitle?: string;
   boardLabels: Label[];
+  boardCardTypes?: CardType[];
   boardMembers?: BoardMember[];
   isOpen: boolean;
   onClose: () => void;
@@ -117,6 +118,7 @@ export function CardDetailModal({
   card,
   listTitle,
   boardLabels,
+  boardCardTypes = [],
   boardMembers = [],
   isOpen,
   onClose,
@@ -140,6 +142,7 @@ export function CardDetailModal({
   const [description, setDescription] = useState('');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [priority, setPriority] = useState<Priority | 'NONE'>('NONE');
+  const [cardTypeId, setCardTypeId] = useState<string>('NONE');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [isSavingAssignee, setIsSavingAssignee] = useState(false);
 
@@ -182,6 +185,7 @@ export function CardDetailModal({
       if (fresh || !isEditingTitleRef.current) setTitle(card.title);
       if (fresh || !isEditingDescriptionRef.current) setDescription(card.description || '');
       setPriority(card.priority || 'NONE');
+      setCardTypeId(card.cardTypeId || 'NONE');
       setDueDate(card.dueDate ? new Date(card.dueDate) : undefined);
       if (fresh) {
         setIsEditingTitle(false);
@@ -262,6 +266,14 @@ export function CardDetailModal({
     else triggerSaveIndicator('error');
   };
 
+  const handleCardTypeChange = async (val: string) => {
+    const newCardTypeId = val === 'NONE' ? null : val;
+    setCardTypeId(val);
+    setSaveStatus('saving');
+    const success = await onUpdateCard(card.id, { cardTypeId: newCardTypeId });
+    if (success) triggerSaveIndicator('saved');
+    else { setCardTypeId(card.cardTypeId || 'NONE'); triggerSaveIndicator('error'); }
+  };
   const handlePriorityChange = async (val: string) => {
     const newPriority = val === 'NONE' ? null : (val as Priority);
     setPriority((val as Priority) || 'NONE');
@@ -603,7 +615,7 @@ export function CardDetailModal({
                       <span className="font-medium text-foreground/80">{formatDateTime(card.updatedAt)}</span>
                     </li>
                     {(card.activities || []).map((entry) => {
-                      const meta = (entry.metadata ?? {}) as { assigneeName?: string; actorName?: string; swimlaneName?: string };
+                      const meta = (entry.metadata ?? {}) as { assigneeName?: string; actorName?: string; swimlaneName?: string; cardTypeName?: string };
                       const text =
                         entry.type === 'card.assigned'
                           ? `${meta.actorName ? `${meta.actorName} assigned ${meta.assigneeName ?? 'someone'}` : `Assigned to ${meta.assigneeName ?? 'someone'}`}`
@@ -615,7 +627,11 @@ export function CardDetailModal({
                                 ? `Moved to swimlane ${meta.swimlaneName ?? ''}`.trim()
                                 : entry.type === 'card.removed_from_swimlane'
                                   ? 'Removed from swimlane'
-                                  : null;
+                                  : entry.type === 'card.type_assigned'
+                                    ? `Type set to ${meta.cardTypeName ?? ''}`.trim()
+                                    : entry.type === 'card.type_removed'
+                                      ? 'Type removed'
+                                      : null;
                       if (!text) return null;
                       return (
                         <li key={entry.id} className="flex items-center justify-between rounded-lg bg-[#F5F4F1] px-3 py-2">
@@ -787,6 +803,25 @@ export function CardDetailModal({
                 )}
                 {/* 5 — Priority & Due date */}
                 <section className="space-y-4" aria-label="Priority and due date">
+                  <div className="space-y-1.5">
+                    <h3 className="kala-section-label flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" aria-hidden />Type</h3>
+                    <Select value={cardTypeId} onValueChange={handleCardTypeChange}>
+                      <SelectTrigger className="h-9 w-full bg-white text-xs" aria-label="Card type" disabled={readOnly}>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE"><span className="text-muted-foreground">None</span></SelectItem>
+                        {boardCardTypes.map((ct) => (
+                          <SelectItem key={ct.id} value={ct.id}>
+                            <span className="flex items-center gap-2">
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: ct.color }} aria-hidden />
+                              <span className="font-medium">{ct.name}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-1.5">
                     <h3 className="kala-section-label flex items-center gap-1.5"><Flag className="h-3.5 w-3.5" aria-hidden />Priority</h3>
                     <Select value={priority} onValueChange={handlePriorityChange}>

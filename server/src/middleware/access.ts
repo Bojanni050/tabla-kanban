@@ -95,6 +95,16 @@ export async function authorizeSwimlane(
   return checkBoard(req, res, 'Swimlane', row?.boardId, permission);
 }
 
+export async function authorizeCardType(
+  req: Request,
+  res: Response,
+  id: string,
+  permission: Permission = 'view'
+): Promise<boolean> {
+  const row = await prisma.cardType.findUnique({ where: { id }, select: { boardId: true } });
+  return checkBoard(req, res, 'Card type', row?.boardId, permission);
+}
+
 export async function authorizeCard(
   req: Request,
   res: Response,

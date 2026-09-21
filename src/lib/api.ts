@@ -1,6 +1,7 @@
 import type {
   AssignableRole,
   Swimlane,
+  CardType,
   Board,
   BoardActivityEntry,
   BoardInvitation,
@@ -192,6 +193,7 @@ export const api = {
       dueDate?: string | null;
       archived?: boolean;
       swimlaneId?: string | null;
+      cardTypeId?: string | null;
     }
   ) =>
     request<Card>(`/cards/${id}`, {
@@ -222,6 +224,19 @@ export const api = {
     }),
   deleteSwimlane: (id: string) =>
     request<void>(`/swimlanes/${id}`, { method: 'DELETE' }),
+  // Card types
+  createCardType: (data: { name: string; color: string; boardId: string }) =>
+    request<CardType>('/card-types', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateCardType: (id: string, data: { name?: string; color?: string; position?: number }) =>
+    request<CardType>(`/card-types/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteCardType: (id: string) =>
+    request<void>(`/card-types/${id}`, { method: 'DELETE' }),
 
   // Labels
   createLabel: (data: { name: string; color: string; boardId: string }) =>

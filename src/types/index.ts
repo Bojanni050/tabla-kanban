@@ -86,6 +86,8 @@ export interface Card {
   assigneeId?: string | null;
   swimlaneId?: string | null;
   swimlane?: { id: string; name: string } | null;
+  cardTypeId?: string | null;
+  cardType?: { id: string; name: string; color: string } | null;
   createdAt?: string;
   updatedAt?: string;
   labels?: Label[];
@@ -108,10 +110,21 @@ export interface Swimlane {
   updatedAt: string;
 }
 
+export interface CardType {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+  boardId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BoardWithDetails extends Board {
   lists: List[];
   labels: Label[];
   swimlanes?: Swimlane[];
+  cardTypes?: CardType[];
   workspace: Workspace;
   myRole: BoardRole;
 }

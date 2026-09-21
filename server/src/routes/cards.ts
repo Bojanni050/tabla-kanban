@@ -86,6 +86,9 @@ const cardInclude = {
   swimlane: {
     select: { id: true, name: true, position: true, boardId: true },
   },
+  cardType: {
+    select: { id: true, name: true, color: true },
+  },
 } as const;
 
 const createActivity = (
@@ -101,7 +104,7 @@ const createActivity = (
 // PATCH /api/cards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeCard(req, res, req.params.id, 'edit'))) return;
-  const { title, description, position, listId, priority, dueDate, archived, assigneeId, swimlaneId } = req.body;
+  const { title, description, position, listId, priority, dueDate, archived, assigneeId, swimlaneId, cardTypeId } = req.body;
   if (listId !== undefined) {
     if (typeof listId !== 'string') {
       res.status(400).json({ error: 'Invalid listId' });
@@ -166,6 +169,34 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
   }
 
+  // A card type must belong to the same board as the card. When the card is also
+  // moving to another list, the board of that target list decides.
+  let validatedCardTypeId: string | null | undefined = undefined;
+  if (cardTypeId !== undefined) {
+    if (cardTypeId === null || cardTypeId === '') {
+      validatedCardTypeId = null;
+    } else if (typeof cardTypeId === 'string') {
+      const boardId = typeof listId === 'string'
+        ? (await prisma.list.findUnique({ where: { id: listId }, select: { boardId: true } }))?.boardId
+        : (await prisma.card.findUnique({
+            where: { id: req.params.id },
+            select: { list: { select: { boardId: true } } },
+          }))?.list.boardId;
+      const cardType = await prisma.cardType.findUnique({
+        where: { id: cardTypeId },
+        select: { boardId: true },
+      });
+      if (!cardType || !boardId || cardType.boardId !== boardId) {
+        res.status(400).json({ error: 'Card type must belong to the same board as the card' });
+        return;
+      }
+      validatedCardTypeId = cardTypeId;
+    } else {
+      res.status(400).json({ error: 'Invalid cardTypeId' });
+      return;
+    }
+  }
+
   // An assignee must be a member of the board the card belongs to.
   let validatedAssigneeId: string | null | undefined = undefined;
   if (assigneeId !== undefined) {
@@ -192,8 +223,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
   }
   try {
-    const before = validatedAssigneeId !== undefined || validatedSwimlaneId !== undefined
-      ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true, swimlaneId: true } })
+    const before = validatedAssigneeId !== undefined || validatedSwimlaneId !== undefined || validatedCardTypeId !== undefined
+      ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true, swimlaneId: true, cardTypeId: true } })
       : null;
     // Record assignment changes in the activity history before the update,
     // so the updated card ships with its new activity entry.
@@ -213,6 +244,20 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(assignee && { assigneeId: validatedAssigneeId, assigneeName: assignee.name ?? assignee.email }),
         ...(actor && { actorName: actor.name ?? actor.email }),
       });
+    }
+    // Record card type changes in the activity history.
+    if (validatedCardTypeId !== undefined && before && before.cardTypeId !== validatedCardTypeId) {
+      const cardType = validatedCardTypeId
+        ? await prisma.cardType.findUnique({ where: { id: validatedCardTypeId }, select: { name: true } })
+        : null;
+      await createActivity(
+        req.params.id,
+        req.userId!,
+        validatedCardTypeId ? 'card.type_assigned' : 'card.type_removed',
+        {
+          ...(validatedCardTypeId && { cardTypeId: validatedCardTypeId, cardTypeName: cardType?.name ?? null }),
+        }
+      );
     }
     // Record swimlane membership changes in the activity history.
     if (validatedSwimlaneId !== undefined && before && before.swimlaneId !== validatedSwimlaneId) {
@@ -240,6 +285,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(archived !== undefined && { archived: Boolean(archived) }),
         ...(validatedAssigneeId !== undefined && { assigneeId: validatedAssigneeId }),
         ...(validatedSwimlaneId !== undefined && { swimlaneId: validatedSwimlaneId }),
+        ...(validatedCardTypeId !== undefined && { cardTypeId: validatedCardTypeId }),
       },
       include: cardInclude,
     });

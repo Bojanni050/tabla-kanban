@@ -53,6 +53,9 @@ router.get('/:id', async (req: Request, res: Response) => {
       swimlanes: {
         orderBy: { position: 'asc' },
       },
+      cardTypes: {
+        orderBy: { position: 'asc' },
+      },
       lists: {
         include: {
           cards: {
@@ -67,6 +70,9 @@ router.get('/:id', async (req: Request, res: Response) => {
               },
               swimlane: {
                 select: { id: true, name: true },
+              },
+              cardType: {
+                select: { id: true, name: true, color: true },
               },
               activities: {
                 orderBy: { createdAt: 'desc' },

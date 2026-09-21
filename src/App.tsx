@@ -19,6 +19,7 @@ import type {
   BoardWithDetails,
   Card,
   Swimlane,
+  CardType,
   ChecklistItem,
   Label,
   List,
@@ -255,6 +256,41 @@ function App() {
               ...list,
               cards: list.cards.map((c) =>
                 c.swimlaneId === swimlaneId ? { ...c, swimlaneId: null, swimlane: null } : c
+              ),
+            })),
+          };
+        }
+        case 'card_type.created': {
+          const cardType = event.data as CardType;
+          if ((prev.cardTypes || []).some((ct) => ct.id === cardType.id)) return prev;
+          return { ...prev, cardTypes: [...(prev.cardTypes || []), cardType] };
+        }
+        case 'card_type.updated': {
+          const cardType = event.data as CardType;
+          return {
+            ...prev,
+            cardTypes: (prev.cardTypes || [])
+              .filter((ct) => ct.id !== cardType.id)
+              .concat(cardType)
+              .sort((a, b) => a.position - b.position),
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) =>
+                c.cardTypeId === cardType.id ? { ...c, cardType: { id: cardType.id, name: cardType.name, color: cardType.color } } : c
+              ),
+            })),
+          };
+        }
+        case 'card_type.deleted': {
+          const { cardTypeId } = event.data as { cardTypeId: string };
+          return {
+            ...prev,
+            cardTypes: (prev.cardTypes || []).filter((ct) => ct.id !== cardTypeId),
+            // Cards with the deleted type fall back to no type (cardTypeId = NULL in the DB).
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) =>
+                c.cardTypeId === cardTypeId ? { ...c, cardTypeId: null, cardType: null } : c
               ),
             })),
           };
@@ -543,7 +579,7 @@ function App() {
               ...l,
               cards: l.cards.map((c) =>
                 c.id === cardId
-                  ? { ...c, ...updated, assigneeId: updated.assigneeId ?? null, assignee: updated.assignee ?? null }
+                  ? { ...c, ...updated, assigneeId: updated.assigneeId ?? null, assignee: updated.assignee ?? null, cardTypeId: updated.cardTypeId ?? null, cardType: updated.cardType ?? null }
                   : c
               ),
             })),
@@ -1278,6 +1314,103 @@ function App() {
     }
   };
 
+  // --- Card types ---------------------------------------------------------------
+  const handleAddCardType = async (name: string, color: string): Promise<boolean> => {
+    if (!board) return false;
+    try {
+      const cardType = await api.createCardType({ name, color, boardId: board.id });
+      setBoard((prev) => (prev ? { ...prev, cardTypes: [...(prev.cardTypes || []), cardType] } : prev));
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not add card type',
+        description: 'The card type could not be created. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  const handleUpdateCardType = async (cardTypeId: string, data: { name?: string; color?: string }): Promise<boolean> => {
+    try {
+      const updated = await api.updateCardType(cardTypeId, data);
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              cardTypes: (prev.cardTypes || []).map((ct) => (ct.id === cardTypeId ? updated : ct)),
+              lists: prev.lists.map((list) => ({
+                ...list,
+                cards: list.cards.map((c) =>
+                  c.cardTypeId === cardTypeId ? { ...c, cardType: { id: updated.id, name: updated.name, color: updated.color } } : c
+                ),
+              })),
+            }
+          : prev
+      );
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not update card type',
+        description: 'The card type could not be updated. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  const handleDeleteCardType = async (cardTypeId: string): Promise<boolean> => {
+    try {
+      await api.deleteCardType(cardTypeId);
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              cardTypes: (prev.cardTypes || []).filter((ct) => ct.id !== cardTypeId),
+              lists: prev.lists.map((list) => ({
+                ...list,
+                cards: list.cards.map((c) =>
+                  c.cardTypeId === cardTypeId ? { ...c, cardTypeId: null, cardType: null } : c
+                ),
+              })),
+            }
+          : prev
+      );
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not delete card type',
+        description: 'The card type could not be deleted. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  // Reorder card types by persisting the full new order as positions 0..n
+  const handleReorderCardTypes = async (orderedIds: string[]): Promise<void> => {
+    if (!board) return;
+    const previous = board.cardTypes || [];
+    const reordered = orderedIds
+      .map((id, i) => ({ ...previous.find((ct) => ct.id === id)!, position: i }))
+      .filter((ct) => ct.id);
+    setBoard((prev) =>
+      prev
+        ? { ...prev, cardTypes: (prev.cardTypes || []).map((ct) => reordered.find((r) => r.id === ct.id) ?? ct).sort((a, b) => a.position - b.position) }
+        : prev
+    );
+    try {
+      await Promise.all(reordered.map((ct, i) => api.updateCardType(ct.id, { position: i })));
+    } catch {
+      setBoard((prev) => (prev ? { ...prev, cardTypes: previous } : prev));
+      toast({
+        variant: 'destructive',
+        title: 'Could not reorder card types',
+        description: 'The new card type order could not be saved. Please try again.',
+      });
+    }
+  };
+
   // Move a card to a (list, swimlane) cell in the swimlane view and persist
   // listId + swimlaneId + position. Position is computed within the target cell.
   const handleMoveCardToCell = async ({
@@ -1697,6 +1830,10 @@ function App() {
             onRenameSwimlane={handleRenameSwimlane}
             onDeleteSwimlane={handleDeleteSwimlane}
             onReorderSwimlanes={handleReorderSwimlanes}
+            onAddCardType={handleAddCardType}
+            onUpdateCardType={handleUpdateCardType}
+            onDeleteCardType={handleDeleteCardType}
+            onReorderCardTypes={handleReorderCardTypes}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
             onCreateLabel={handleCreateLabel}

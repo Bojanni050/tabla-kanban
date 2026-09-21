@@ -19,9 +19,12 @@ import {
   LayoutTemplate,
   SearchX,
   Sparkles,
+  Layers,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, Label, Priority, BoardMember } from '@/types';
+import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, CardType, Label, Priority, BoardMember } from '@/types';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -86,6 +89,18 @@ const PRIORITY_OPTIONS: { id: Priority; label: string }[] = [
   { id: 'MEDIUM', label: 'Medium' },
   { id: 'LOW', label: 'Low' },
 ];
+const CARD_TYPE_COLORS = [
+  { name: 'Blue', hex: '#5B8DD9' },
+  { name: 'Coral', hex: '#CE6F51' },
+  { name: 'Amber', hex: '#D9A03F' },
+  { name: 'Sage', hex: '#7FA693' },
+  { name: 'Teal', hex: '#4FA3A3' },
+  { name: 'Indigo', hex: '#6B7BD6' },
+  { name: 'Purple', hex: '#8B6FC7' },
+  { name: 'Pink', hex: '#D96A9B' },
+];
+// First-use suggestions shown in the manage dialog; never created without an explicit user action.
+const SUGGESTED_CARD_TYPES = ['Task', 'Feature', 'Bug', 'Request'];
 
 const isCardOverdue = (dueDateStr: string | null | undefined) => {
   if (!dueDateStr) return false;
@@ -118,6 +133,10 @@ interface BoardViewProps {
   onRenameSwimlane: (swimlaneId: string, name: string) => Promise<boolean>;
   onDeleteSwimlane: (swimlaneId: string) => Promise<boolean>;
   onReorderSwimlanes: (orderedIds: string[]) => void;
+  onAddCardType?: (name: string, color: string) => Promise<boolean>;
+  onUpdateCardType?: (cardTypeId: string, data: { name?: string; color?: string }) => Promise<boolean>;
+  onDeleteCardType?: (cardTypeId: string) => Promise<boolean>;
+  onReorderCardTypes?: (orderedIds: string[]) => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   onCreateLabel?: (name: string, color: string) => Promise<Label | null>;
@@ -184,6 +203,10 @@ export function BoardView({
   onRenameSwimlane,
   onDeleteSwimlane,
   onReorderSwimlanes,
+  onAddCardType,
+  onUpdateCardType,
+  onDeleteCardType,
+  onReorderCardTypes,
   sidebarCollapsed,
   onToggleSidebar,
   onCreateLabel,
@@ -309,13 +332,18 @@ export function BoardView({
   // 'all' | 'unassigned' | 'me' | a member's userId
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
+  const [cardTypeFilter, setCardTypeFilter] = useState<string>('all');
+  const [isCardTypesOpen, setIsCardTypesOpen] = useState(false);
+  const [isAddingCardType, setIsAddingCardType] = useState(false);
+  const [newCardTypeName, setNewCardTypeName] = useState('');
+  const [newCardTypeColor, setNewCardTypeColor] = useState(CARD_TYPE_COLORS[0].hex);
 
   const assigneeFilterActive = assigneeFilter !== 'all';
   const isMyCardsFilter = assigneeFilter === 'me' || assigneeFilter === currentUserId;
-  const filterBadgeCount = selectedLabelIds.length + selectedPriorities.length + (dueDateFilter !== 'all' ? 1 : 0) + (assigneeFilterActive ? 1 : 0);
+  const filterBadgeCount = selectedLabelIds.length + selectedPriorities.length + (dueDateFilter !== 'all' ? 1 : 0) + (assigneeFilterActive ? 1 : 0) + (cardTypeFilter !== 'all' ? 1 : 0);
 
   const isFiltered = Boolean(
-    searchQuery.trim() || selectedLabelIds.length > 0 || selectedPriorities.length > 0 || dueDateFilter !== 'all' || assigneeFilterActive
+    searchQuery.trim() || selectedLabelIds.length > 0 || selectedPriorities.length > 0 || dueDateFilter !== 'all' || assigneeFilterActive || cardTypeFilter !== 'all'
   );
 
   // Reset filters when switching boards
@@ -325,6 +353,7 @@ export function BoardView({
     setSelectedPriorities([]);
     setDueDateFilter('all');
     setAssigneeFilter('all');
+    setCardTypeFilter('all');
     setSelectedCardId(null);
   }, [board.id]);
 
@@ -348,6 +377,7 @@ export function BoardView({
     setSelectedPriorities([]);
     setDueDateFilter('all');
     setAssigneeFilter('all');
+    setCardTypeFilter('all');
   };
 
   const toggleLabelFilter = (labelId: string) => {
@@ -391,10 +421,13 @@ export function BoardView({
             if (card.assigneeId) return false;
           } else if (card.assigneeId !== (isMyCardsFilter ? currentUserId : assigneeFilter)) return false;
         }
+        if (cardTypeFilter === 'none') {
+          if (card.cardTypeId) return false;
+        } else if (cardTypeFilter !== 'all' && card.cardTypeId !== cardTypeFilter) return false;
         return true;
       }),
     }));
-  }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter, assigneeFilter, assigneeFilterActive, isMyCardsFilter, currentUserId]);
+  }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter, assigneeFilter, assigneeFilterActive, isMyCardsFilter, cardTypeFilter, currentUserId]);
 
   const hasSwimlanes = (board.swimlanes?.length ?? 0) > 0;
   const totalCardsCount = useMemo(() => board.lists.reduce((acc, l) => acc + l.cards.length, 0), [board.lists]);
@@ -538,7 +571,7 @@ export function BoardView({
                 <div className="mb-2 flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--kala-line)' }}>
                   <h4 className="kala-section-label">Filters</h4>
                   {filterBadgeCount > 0 && (
-                    <button type="button" onClick={() => { setSelectedLabelIds([]); setSelectedPriorities([]); setDueDateFilter('all'); setAssigneeFilter('all'); }} className="text-xs font-medium text-[#9A4A30] hover:underline">
+                    <button type="button" onClick={() => { setSelectedLabelIds([]); setSelectedPriorities([]); setDueDateFilter('all'); setAssigneeFilter('all'); setCardTypeFilter('all'); }} className="text-xs font-medium text-[#9A4A30] hover:underline">
                       Reset
                     </button>
                   )}
@@ -581,6 +614,42 @@ export function BoardView({
                       </button>
                     );
                   })}
+                </div>
+                <div className="mb-3 space-y-0.5">
+                  <p className="kala-section-label px-1 pb-1">Type</p>
+                  <button
+                    type="button"
+                    onClick={() => setCardTypeFilter('all')}
+                    aria-pressed={cardTypeFilter === 'all'}
+                    className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', cardTypeFilter === 'all' ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                  >
+                    <span>All Types</span>
+                    {cardTypeFilter === 'all' && <Check className="h-3.5 w-3.5 text-[#7FA693]" aria-hidden />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardTypeFilter('none')}
+                    aria-pressed={cardTypeFilter === 'none'}
+                    className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', cardTypeFilter === 'none' ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                  >
+                    <span className="italic text-muted-foreground">No type</span>
+                    {cardTypeFilter === 'none' && <Check className="h-3.5 w-3.5 text-[#7FA693]" aria-hidden />}
+                  </button>
+                  {(board.cardTypes || []).map((ct) => (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      onClick={() => setCardTypeFilter(ct.id)}
+                      aria-pressed={cardTypeFilter === ct.id}
+                      className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', cardTypeFilter === ct.id ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: ct.color }} aria-hidden />
+                        <span className="truncate">{ct.name}</span>
+                      </span>
+                      {cardTypeFilter === ct.id && <Check className="h-3.5 w-3.5 shrink-0 text-[#7FA693]" aria-hidden />}
+                    </button>
+                  ))}
                 </div>
                 <div className="mb-3 space-y-0.5">
                   <p className="kala-section-label px-1 pb-1">Due date</p>
@@ -676,6 +745,9 @@ export function BoardView({
             <HeaderIconButton label={`Board labels (${board.labels?.length ?? 0})`} onClick={() => setIsBoardLabelsOpen(true)}>
               <Tag className="h-4 w-4" />
             </HeaderIconButton>
+            <HeaderIconButton label={`Card types (${board.cardTypes?.length ?? 0})`} onClick={() => setIsCardTypesOpen(true)}>
+              <Layers className="h-4 w-4" />
+            </HeaderIconButton>
 
             <DropdownMenu>
               <TooltipProvider delayDuration={200}>
@@ -696,6 +768,9 @@ export function BoardView({
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem onClick={() => setIsBoardLabelsOpen(true)} className="cursor-pointer text-[13px]">
                   <Tag className="mr-2 h-3.5 w-3.5" /> Manage labels ({board.labels?.length ?? 0})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsCardTypesOpen(true)} className="cursor-pointer text-[13px]">
+                  <Layers className="mr-2 h-3.5 w-3.5" /> Card types ({board.cardTypes?.length ?? 0})
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleOpenArchivedCards} className="cursor-pointer text-[13px]">
@@ -977,6 +1052,7 @@ export function BoardView({
         card={selectedCard}
         listTitle={selectedList?.title}
         boardLabels={board.labels || []}
+        boardCardTypes={board.cardTypes || []}
         boardMembers={memberPreview}
         isOpen={!!selectedCard}
         onClose={() => setSelectedCardId(null)}
@@ -1104,7 +1180,7 @@ export function BoardView({
                 <h3 className="kala-section-label px-1 pb-1">Recent team activity</h3>
                 <ul className="space-y-1">
                   {teamActivity.map((entry) => {
-                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string };
+                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string; cardTypeName?: string };
                     const roleLabel = meta.role ? ROLE_META[meta.role as BoardRole]?.label ?? meta.role : null;
                     const text =
                       entry.type === 'member.joined'
@@ -1125,7 +1201,15 @@ export function BoardView({
                                       ? `Swimlane ${meta.swimlaneName ?? ''} was deleted`.trim()
                                       : entry.type === 'swimlane.reordered'
                                         ? 'Swimlanes were reordered'
-                                        : null;
+                                        : entry.type === 'card_type.created'
+                                          ? `Card type ${meta.cardTypeName ?? ''} was created`.trim()
+                                          : entry.type === 'card_type.renamed'
+                                            ? `Card type was renamed to ${meta.cardTypeName ?? ''}`.trim()
+                                            : entry.type === 'card_type.reordered'
+                                              ? 'Card types were reordered'
+                                              : entry.type === 'card_type.deleted'
+                                                ? `Card type ${meta.cardTypeName ?? ''} was deleted`.trim()
+                                                : null;
                     if (!text) return null;
                     return (
                       <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F5F4F1] px-3 py-1.5 text-[12px]">
@@ -1177,6 +1261,171 @@ export function BoardView({
             ))}
             {(board.labels || []).length === 0 && (
               <EmptyState compact icon={<Tag className="h-4 w-4" />} title="No labels yet" description="Open any card and choose Manage labels to create your first one." />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isCardTypesOpen} onOpenChange={setIsCardTypesOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Card types</DialogTitle>
+            <DialogDescription>Types describe what a card is, e.g. Task, Feature or Bug. Each card has at most one type.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            {(board.cardTypes || []).map((ct, i) => (
+              <div key={ct.id} className="flex items-center justify-between rounded-lg border bg-white p-2 pl-2.5" style={{ borderColor: 'var(--kala-line)' }}>
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  {canManageBoard(board.myRole) && onReorderCardTypes && board.cardTypes && board.cardTypes.length > 1 ? (
+                    <span className="flex flex-col">
+                      <button
+                        type="button"
+                        className="text-muted-foreground/60 hover:text-foreground disabled:opacity-30"
+                        disabled={i === 0}
+                        aria-label={`Move ${ct.name} up`}
+                        onClick={() => {
+                          const ids = (board.cardTypes || []).map((t) => t.id);
+                          [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                          onReorderCardTypes(ids);
+                        }}
+                      >
+                        <ArrowUp className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-muted-foreground/60 hover:text-foreground disabled:opacity-30"
+                        disabled={i === (board.cardTypes?.length ?? 0) - 1}
+                        aria-label={`Move ${ct.name} down`}
+                        onClick={() => {
+                          const ids = (board.cardTypes || []).map((t) => t.id);
+                          [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]];
+                          onReorderCardTypes(ids);
+                        }}
+                      >
+                        <ArrowDown className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ) : null}
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: ct.color }} aria-hidden />
+                  {canManageBoard(board.myRole) && onUpdateCardType ? (
+                    <span className="flex min-w-0 flex-wrap items-center gap-1">
+                      <input
+                        defaultValue={ct.name}
+                        aria-label={`Rename card type ${ct.name}`}
+                        className="w-28 rounded border-none bg-transparent text-[13px] font-medium text-foreground outline-none focus:underline"
+                        onBlur={(e) => {
+                          const name = e.target.value.trim();
+                          if (name && name !== ct.name) onUpdateCardType(ct.id, { name });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                        }}
+                      />
+                      {CARD_TYPE_COLORS.slice(0, 5).map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => onUpdateCardType(ct.id, { color: c.hex })}
+                          aria-label={`Set ${ct.name} color to ${c.name}`}
+                          className={cn('h-4 w-4 rounded-full transition-transform', ct.color === c.hex ? 'scale-110 ring-2 ring-offset-1 ring-[#2A2F36]' : 'hover:scale-110 opacity-70')}
+                          style={{ backgroundColor: c.hex }}
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="truncate text-[13px] font-medium text-foreground">{ct.name}</span>
+                  )}
+                </span>
+                {canManageBoard(board.myRole) && onDeleteCardType && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => onDeleteCardType(ct.id)}
+                    aria-label={`Delete card type ${ct.name}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {(board.cardTypes || []).length === 0 && (
+              <EmptyState compact icon={<Layers className="h-4 w-4" />} title="No card types yet" description="Add your first type below. Cards without a type keep working as before." />
+            )}
+            {canManageBoard(board.myRole) && onAddCardType && (
+              <>
+                {isAddingCardType ? (
+                  <div className="space-y-2 rounded-lg border bg-[#FAFAF8] p-2.5" style={{ borderColor: 'var(--kala-line)' }}>
+                    <Input
+                      value={newCardTypeName}
+                      onChange={(e) => setNewCardTypeName(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && newCardTypeName.trim()) {
+                          const ok = await onAddCardType(newCardTypeName.trim(), newCardTypeColor);
+                          if (ok) { setIsAddingCardType(false); setNewCardTypeName(''); }
+                        }
+                        if (e.key === 'Escape') { setIsAddingCardType(false); setNewCardTypeName(''); }
+                      }}
+                      placeholder="Type name, e.g. Task"
+                      aria-label="New card type name"
+                      className="h-8 bg-white text-[13px]"
+                      autoFocus
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {CARD_TYPE_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => setNewCardTypeColor(c.hex)}
+                          aria-label={`Color ${c.name}`}
+                          aria-pressed={newCardTypeColor === c.hex}
+                          className={cn('h-5 w-5 rounded-full transition-transform', newCardTypeColor === c.hex ? 'scale-110 ring-2 ring-offset-2 ring-[#2A2F36]' : 'hover:scale-105')}
+                          style={{ backgroundColor: c.hex }}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={!newCardTypeName.trim()}
+                        onClick={async () => {
+                          const ok = await onAddCardType(newCardTypeName.trim(), newCardTypeColor);
+                          if (ok) { setIsAddingCardType(false); setNewCardTypeName(''); }
+                        }}
+                        className="h-7 bg-[#2A2F36] px-3 text-xs text-white hover:bg-[#1E2329]"
+                      >
+                        Add type
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setIsAddingCardType(false); setNewCardTypeName(''); }} className="h-7 px-2.5 text-xs">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => setIsAddingCardType(true)} className="h-8 w-full gap-1.5 bg-white text-xs">
+                      <Plus className="h-3.5 w-3.5" aria-hidden /> Add card type
+                    </Button>
+                    {(board.cardTypes || []).length === 0 && (
+                      <div>
+                        <p className="kala-section-label px-1 pb-1">Suggestions</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {SUGGESTED_CARD_TYPES.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => onAddCardType(name, CARD_TYPE_COLORS[SUGGESTED_CARD_TYPES.indexOf(name) % CARD_TYPE_COLORS.length].hex)}
+                              className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted/60"
+                              style={{ borderColor: 'var(--kala-line)' }}
+                            >
+                              <Plus className="h-3 w-3" aria-hidden /> {name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </div>
         </DialogContent>
