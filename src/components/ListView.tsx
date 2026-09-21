@@ -141,6 +141,11 @@ function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) 
         )}
 
         <p className="pr-12 text-[13px] font-medium leading-snug text-foreground">{card.title}</p>
+        {card.description && (
+          <p className="mt-1 line-clamp-2 whitespace-pre-line pr-6 text-[11px] leading-snug text-muted-foreground">
+            {card.description}
+          </p>
+        )}
 
         {(card.dueDate || card.priority || checklist.length > 0 || card.description) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
