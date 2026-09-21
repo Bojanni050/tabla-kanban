@@ -82,6 +82,22 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json({ ...board, myRole: req.boardRole });
 });
 
+// GET /api/boards/:id/activity - recent board-level activity (e.g. team changes)
+router.get('/:id/activity', async (req: Request, res: Response) => {
+  if (!(await authorizeBoard(req, res, req.params.id))) return;
+  try {
+    const activity = await prisma.boardActivity.findMany({
+      where: { boardId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    res.json(activity);
+  } catch (error) {
+    console.error('Error fetching board activity:', error);
+    res.status(500).json({ error: 'Failed to fetch board activity' });
+  }
+});
+
 // GET /api/boards/:id/archived - get all archived cards for a board
 router.get('/:id/archived', async (req: Request, res: Response) => {
   if (!(await authorizeBoard(req, res, req.params.id))) return;

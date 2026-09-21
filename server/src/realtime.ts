@@ -24,7 +24,10 @@ export type RealtimeEventType =
   | 'card.deleted'
   | 'label.created'
   | 'label.updated'
-  | 'label.deleted';
+  | 'label.deleted'
+  | 'member.added'
+  | 'member.updated'
+  | 'member.removed';
 
 export interface RealtimeMessage {
   id: string;

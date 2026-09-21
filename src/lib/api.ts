@@ -1,6 +1,7 @@
 import type {
   AssignableRole,
   Board,
+  BoardActivityEntry,
   BoardInvitation,
   BoardMembersResponse,
   BoardRole,
@@ -199,6 +200,8 @@ export const api = {
     request<Card>(`/cards/${id}/restore`, { method: 'POST' }),
   getArchivedCards: (boardId: string) =>
     request<Card[]>(`/boards/${boardId}/archived`),
+  getBoardActivity: (boardId: string) =>
+    request<BoardActivityEntry[]>(`/boards/${boardId}/activity`),
 
   // Labels
   createLabel: (data: { name: string; color: string; boardId: string }) =>

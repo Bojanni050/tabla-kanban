@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../db.js';
 import { wrap } from '../middleware/async.js';
+import { broadcast } from '../realtime.js';
 
 // Mounted at /api/invitations - the invitee's side of the invitation flow.
 const router = Router();
@@ -120,6 +121,23 @@ router.post('/:token/accept', wrap(async (req: Request, res: Response) => {
     throw err;
   }
 
+  const joined = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: { name: true, email: true },
+  });
+  await prisma.boardActivity.create({
+    data: {
+      boardId: invitation.board.id,
+      actorId: req.userId!,
+      type: 'member.joined',
+      metadata: {
+        userId: req.userId!,
+        memberName: joined ? (joined.name ?? joined.email) : null,
+        role: invitation.role,
+      },
+    },
+  });
+  broadcast(invitation.board.id, 'member.added', { userId: req.userId!, role: invitation.role, boardId: invitation.board.id }, req.userId!);
   res.json({ boardId: invitation.board.id, role: invitation.role });
 }));
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
   X,
@@ -21,7 +21,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardWithDetails, Card, Label, Priority, BoardMember } from '@/types';
+import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, Label, Priority, BoardMember } from '@/types';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -60,7 +60,7 @@ import type { ListTemplate } from '@/lib/list-templates';
 import { AvatarStack, MemberAvatar } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
 import { displayName } from '@/lib/roles';
-import { canEditBoard } from '@/lib/roles';
+import { canEditBoard, canManageBoard } from '@/lib/roles';
 import {
   Dialog,
   DialogContent,
@@ -201,6 +201,7 @@ export function BoardView({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
   const [isTeamPanelOpen, setIsTeamPanelOpen] = useState(false);
+  const [teamActivity, setTeamActivity] = useState<BoardActivityEntry[]>([]);
   const [isAddingList, setIsAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const [isAddListMenuOpen, setIsAddListMenuOpen] = useState(false);
@@ -218,11 +219,19 @@ export function BoardView({
 
   // Compact member preview for the header avatar stack (read-only, best effort)
   const [memberPreview, setMemberPreview] = useState<BoardMember[]>([]);
+  const refreshTeamData = useCallback(() => {
+    api.getBoardMembers(board.id).then((d) => setMemberPreview(d.members)).catch(() => {});
+    api.getBoardActivity(board.id).then(setTeamActivity).catch(() => {});
+  }, [board.id]);
   useEffect(() => {
     let cancelled = false;
     api.getBoardMembers(board.id).then((d) => { if (!cancelled) setMemberPreview(d.members); }).catch(() => {});
+    api.getBoardActivity(board.id).then((d) => { if (!cancelled) setTeamActivity(d); }).catch(() => {});
     return () => { cancelled = true; };
   }, [board.id]);
+  useEffect(() => {
+    if (isTeamPanelOpen) refreshTeamData();
+  }, [isTeamPanelOpen, refreshTeamData]);
 
   const handleOpenArchivedCards = async () => {
     setIsArchivedCardsOpen(true);
@@ -256,6 +265,14 @@ export function BoardView({
     }
   };
 
+  // Keep the team panel in sync with membership and role changes.
+  useEffect(() => {
+    if (!remoteEventTick) return;
+    const { event } = remoteEventTick;
+    if (event.type === 'member.added' || event.type === 'member.updated' || event.type === 'member.removed') {
+      refreshTeamData();
+    }
+  }, [remoteEventTick, refreshTeamData]);
   // Keep the open archived-cards panel in sync with collaborators' actions.
   useEffect(() => {
     if (!isArchivedCardsOpen || !remoteEventTick) return;
@@ -950,40 +967,61 @@ export function BoardView({
       />
 
       <Dialog open={isTeamPanelOpen} onOpenChange={setIsTeamPanelOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-md flex-col bg-white">
+          <DialogHeader className="text-left">
             <DialogTitle>Team</DialogTitle>
             <DialogDescription>
-              Assigned cards per board member. Click a member to filter the board by their cards.
+              Everyone on this board, their role and assigned cards. Click a member to filter the board by their cards.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-1.5 py-1">
-            {[...memberPreview]
-              .sort((a, b) => (assigneeCounts.get(b.userId) ?? 0) - (assigneeCounts.get(a.userId) ?? 0) || displayName(a).localeCompare(displayName(b)))
-              .map((member) => (
-              <button
-                key={member.userId}
-                type="button"
-                onClick={() => {
-                  setAssigneeFilter(member.userId);
-                  setIsTeamPanelOpen(false);
-                }}
-                className="flex w-full items-center justify-between rounded-lg border bg-white p-2 pl-2.5 text-left transition-colors hover:bg-muted/50"
-                style={{ borderColor: 'var(--kala-line)' }}
-                aria-label={`Filter by ${displayName(member)}, ${assigneeCounts.get(member.userId) ?? 0} assigned cards`}
-              >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <MemberAvatar person={member} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-foreground">{displayName(member)}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{member.email}</span>
-                  </span>
-                </span>
-                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground">
-                  {assigneeCounts.get(member.userId) ?? 0} cards
-                </span>
-              </button>
-            ))}
+          <div className="flex-1 space-y-3 overflow-y-auto py-1 pr-1">
+            <div className="space-y-1.5">
+              {[...memberPreview]
+                .sort((a, b) => (assigneeCounts.get(b.userId) ?? 0) - (assigneeCounts.get(a.userId) ?? 0) || displayName(a).localeCompare(displayName(b)))
+                .map((member) => {
+                  const RoleIcon = ROLE_META[member.role].icon;
+                  return (
+                    <div
+                      key={member.userId}
+                      className="flex items-center justify-between gap-3 rounded-lg border bg-white p-2 pl-2.5"
+                      style={{ borderColor: 'var(--kala-line)' }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssigneeFilter(member.userId);
+                          setIsTeamPanelOpen(false);
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md text-left focus-visible:outline-none"
+                        aria-label={`Filter by ${displayName(member)}, ${assigneeCounts.get(member.userId) ?? 0} assigned cards`}
+                      >
+                        <MemberAvatar person={member} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-foreground">{displayName(member)}</span>
+                          <span className="block truncate text-[11px] text-muted-foreground">{member.email}</span>
+                        </span>
+                      </button>
+                      <span
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-muted px-2 text-[10px] font-semibold uppercase tracking-wide text-foreground"
+                        title={ROLE_META[member.role].description}
+                      >
+                        <RoleIcon className="h-3 w-3 text-muted-foreground" aria-hidden />
+                        {ROLE_META[member.role].label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssigneeFilter(member.userId);
+                          setIsTeamPanelOpen(false);
+                        }}
+                        className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted/70"
+                        aria-label={`${assigneeCounts.get(member.userId) ?? 0} cards assigned to ${displayName(member)}. Filter by ${displayName(member)}`}
+                      >
+                        {assigneeCounts.get(member.userId) ?? 0} cards
+                      </button>
+                    </div>
+                  );
+                })}
             <button
               type="button"
               onClick={() => {
@@ -1005,6 +1043,51 @@ export function BoardView({
                 {unassignedCount} cards
               </span>
             </button>
+            </div>
+            {teamActivity.length > 0 && (
+              <section aria-label="Recent team activity" className="space-y-1.5 border-t pt-3" style={{ borderColor: 'var(--kala-line)' }}>
+                <h3 className="kala-section-label px-1 pb-1">Recent team activity</h3>
+                <ul className="space-y-1">
+                  {teamActivity.map((entry) => {
+                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string };
+                    const roleLabel = meta.role ? ROLE_META[meta.role as BoardRole]?.label ?? meta.role : null;
+                    const text =
+                      entry.type === 'member.joined'
+                        ? `${meta.memberName ?? 'Someone'} joined the board${roleLabel ? ` as ${roleLabel}` : ''}`
+                        : entry.type === 'member.role_changed'
+                          ? `${meta.memberName ?? 'Someone'} is now ${roleLabel ?? 'a member'}`
+                          : entry.type === 'member.removed'
+                            ? `${meta.memberName ?? 'Someone'} was removed from the board`
+                            : entry.type === 'member.left'
+                              ? `${meta.memberName ?? 'Someone'} left the board`
+                              : entry.type === 'member.ownership_transferred'
+                                ? `Ownership was transferred to ${meta.memberName ?? 'a new owner'}`
+                                : null;
+                    if (!text) return null;
+                    return (
+                      <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F5F4F1] px-3 py-1.5 text-[12px]">
+                        <span className="min-w-0 truncate text-muted-foreground">{text}</span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground/70">{format(new Date(entry.createdAt), 'MMM d, HH:mm')}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+            {canManageBoard(board.myRole) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-full gap-1.5 bg-white text-xs"
+                onClick={() => {
+                  setIsTeamPanelOpen(false);
+                  setIsMembersOpen(true);
+                }}
+              >
+                <Users className="h-3.5 w-3.5" aria-hidden />
+                Manage team — invite, roles and removal
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

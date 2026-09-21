@@ -19,7 +19,10 @@ export type BoardRealtimeEventType =
   | 'card.deleted'
   | 'label.created'
   | 'label.updated'
-  | 'label.deleted';
+  | 'label.deleted'
+  | 'member.added'
+  | 'member.updated'
+  | 'member.removed';
 
 export interface BoardRealtimeEvent {
   id: string;

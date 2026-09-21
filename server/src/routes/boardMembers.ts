@@ -4,7 +4,8 @@ import { z } from 'zod';
 import prisma from '../db.js';
 import { authorizeBoard, roleCan } from '../middleware/access.js';
 import { wrap } from '../middleware/async.js';
-import { disconnectUserFromBoard } from '../realtime.js';
+import { broadcast, disconnectUserFromBoard } from '../realtime.js';
+import { Prisma } from '@prisma/client';
 
 // Mounted at /api/boards - membership, invitations, leaving and ownership transfer.
 const router = Router();
@@ -19,6 +20,17 @@ const inviteSchema = z.object({
 });
 
 const ROLE_ORDER = { OWNER: 0, ADMIN: 1, MEMBER: 2, VIEWER: 3 } as const;
+
+// Board-level activity log (team changes), display-ready metadata.
+const logActivity = (
+  boardId: string,
+  actorId: string,
+  type: string,
+  metadata: Prisma.InputJsonValue
+) =>
+  prisma.boardActivity.create({
+    data: { boardId, actorId, type, metadata },
+  });
 
 const pendingWhere = () => ({
   acceptedAt: null,
@@ -180,6 +192,16 @@ router.patch('/:id/members/:userId', wrap(async (req: Request, res: Response) =>
     where: { id: target.id },
     data: { role: parsed.data },
   });
+  const renamed = await prisma.user.findUnique({
+    where: { id: target.userId },
+    select: { name: true, email: true },
+  });
+  await logActivity(boardId, req.userId!, 'member.role_changed', {
+    userId: target.userId,
+    memberName: renamed ? (renamed.name ?? renamed.email) : null,
+    role: updated.role,
+  });
+  broadcast(boardId, 'member.updated', { userId: updated.userId, role: updated.role }, req.userId!);
   res.json({ userId: updated.userId, role: updated.role });
 }));
 
@@ -205,8 +227,18 @@ router.delete('/:id/members/:userId', wrap(async (req: Request, res: Response) =
   }
 
   await prisma.boardMember.delete({ where: { id: target.id } });
+  // Their card assignments are nulled by the database (Card.assigneeId ON DELETE SET NULL).
+  const removed = await prisma.user.findUnique({
+    where: { id: target.userId },
+    select: { name: true, email: true },
+  });
+  await logActivity(boardId, req.userId!, 'member.removed', {
+    userId: target.userId,
+    memberName: removed ? (removed.name ?? removed.email) : null,
+  });
   // Stop pushing board events to the removed member immediately.
   disconnectUserFromBoard(boardId, target.userId);
+  broadcast(boardId, 'member.removed', { userId: target.userId, boardId }, req.userId!);
   res.status(204).send();
 }));
 
@@ -219,9 +251,19 @@ router.post('/:id/leave', wrap(async (req: Request, res: Response) => {
     res.status(403).json({ error: 'The owner cannot leave the board. Transfer ownership first.' });
     return;
   }
+  const leaving = await prisma.user.findUnique({
+    where: { id: req.userId! },
+    select: { name: true, email: true },
+  });
   await prisma.boardMember.delete({
     where: { boardId_userId: { boardId, userId: req.userId! } },
   });
+  await logActivity(boardId, req.userId!, 'member.left', {
+    userId: req.userId!,
+    memberName: leaving ? (leaving.name ?? leaving.email) : null,
+  });
+  disconnectUserFromBoard(boardId, req.userId!);
+  broadcast(boardId, 'member.removed', { userId: req.userId!, boardId }, req.userId!);
   res.status(204).send();
 }));
 
@@ -273,6 +315,15 @@ router.post('/:id/transfer', wrap(async (req: Request, res: Response) => {
     res.status(409).json({ error: 'Board ownership has changed. Please refresh and try again.' });
     return;
   }
+  const newOwner = await prisma.user.findUnique({
+    where: { id: newOwnerId },
+    select: { name: true, email: true },
+  });
+  await logActivity(boardId, req.userId!, 'member.ownership_transferred', {
+    userId: newOwnerId,
+    memberName: newOwner ? (newOwner.name ?? newOwner.email) : null,
+  });
+  broadcast(boardId, 'member.updated', { userId: newOwnerId, role: 'OWNER', boardId }, req.userId!);
   res.json({ message: 'Ownership transferred', newOwnerId });
 }));
 

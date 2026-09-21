@@ -56,6 +56,15 @@ export interface CardPerson {
   email: string;
 }
 
+export interface BoardActivityEntry {
+  id: string;
+  boardId: string;
+  actorId: string | null;
+  type: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface CardActivityEntry {
   id: string;
   cardId: string;

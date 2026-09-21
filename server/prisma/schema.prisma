@@ -22,6 +22,7 @@ model User {
   aiKeys              UserAiKey[]
   assignedCards       Card[]             @relation("CardAssignee")
   cardActivities      CardActivity[]
+  boardActivities     BoardActivity[]
 }
 
 // Kala AI: which provider and model a user chose in Settings (one row per user).
@@ -73,6 +74,7 @@ model Board {
   labels      Label[]
   members     BoardMember[]
   invitations Invitation[]
+  activities  BoardActivity[]
 }
 
 enum BoardRole {
@@ -187,6 +189,21 @@ model Card {
   @@index([listId, position])
   @@index([archived])
   @@index([assigneeId])
+}
+
+// One row per board-level change worth surfacing (e.g. team changes).
+model BoardActivity {
+  id        String   @id @default(uuid())
+  boardId   String
+  actorId   String?
+  type      String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([boardId, createdAt])
 }
 
 // One row per card change worth surfacing in the card's activity history.
