@@ -253,6 +253,17 @@ cd /var/www/vhosts/kala.example.com/kala
 git pull && docker compose up -d --build
 ```
 
+**Automatic deployment (optional).** `.github/workflows/deploy.yml` deploys on every push to `main` by SSHing into the server, running `git reset --hard origin/main` and `docker compose up -d --build --wait` (your `.env` is untracked and stays untouched). Add these repository secrets under Settings → Secrets and variables → Actions; until all four exist the workflow skips itself:
+
+| Secret | Value |
+|--------|-------|
+| `SSH_HOST` | server host name or IP |
+| `SSH_USER` | SSH user that may run `docker` |
+| `SSH_PRIVATE_KEY` | private key whose public half is in that user's `~/.ssh/authorized_keys` |
+| `DEPLOY_PATH` | the checkout folder on the server, e.g. `/var/www/vhosts/example.com/kala` |
+
+The first deployment (clone, `.env`, Plesk proxy) still has to be done by hand as described above. You can also start the workflow manually from the repository's Actions tab.
+
 Plesk's own backups do **not** include Docker volumes. Schedule the PostgreSQL backup from section 9 (for example as a Plesk *Scheduled Task*) and copy the dump off the server.
 
 ---

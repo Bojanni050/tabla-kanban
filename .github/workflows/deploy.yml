@@ -1,0 +1,72 @@
+name: Deploy to VPS - Kala
+
+# Deploys to the Strato/Plesk server over SSH on every push to main (or manually from the
+# Actions tab). The server keeps a git checkout of this repository plus a local .env with the
+# production secrets; this workflow only updates the code and rebuilds the containers.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   SSH_HOST         server host name or IP
+#   SSH_USER         SSH user that may run docker (same as for melodiq)
+#   SSH_PRIVATE_KEY  private key for that user (the matching public key is in ~/.ssh/authorized_keys)
+#   DEPLOY_PATH      folder of the checkout on the server, e.g. /var/www/vhosts/<domain>/kala
+#
+# Until these are set the workflow does nothing and finishes green.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-kala
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check deployment configuration
+        id: config
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "::notice::Deployment secrets are not configured (SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, DEPLOY_PATH) - skipping."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via SSH
+        if: steps.config.outputs.configured == 'true'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_PATH
+          command_timeout: 15m
+          script: |
+            set -e
+
+            cd "$DEPLOY_PATH"
+
+            # Update the code. The untracked .env with the production secrets is left alone.
+            git fetch origin
+            git reset --hard origin/main
+
+            # Rebuild and restart. --wait blocks until every service is healthy and fails the
+            # deployment if one is not (postgres -> backend, which runs `prisma migrate deploy`
+            # on start -> frontend). The database volume is never touched.
+            docker compose up -d --build --wait --wait-timeout 300
+
+            docker image prune -f
+            docker compose ps
