@@ -167,6 +167,94 @@ Pending migrations are applied automatically when the new backend starts.
 - **Run a single backend container.** Real-time board rooms are also kept in that process's memory, so scaling the backend to several replicas would split collaborators into separate rooms.
 - Container logs are rotated (`10m` × 3 files per service).
 
+### Deploying on a Strato server with Plesk
+
+Plesk's own nginx keeps ports 80/443 and the TLS certificate; Kala runs as the Docker stack above, listening only on `127.0.0.1`, and Plesk forwards your domain to it.
+
+**Requirements**
+
+- A Strato **VPS or dedicated server** with root access and Plesk (shared web hosting cannot run Docker). Plesk supports Docker on 64-bit Ubuntu 18.04+, Debian 10+, AlmaLinux/Rocky 8+.
+- The Plesk **Docker extension** (Tools & Settings → Extensions). Depending on your Plesk edition it may need a Docker licence — see the [Plesk Docker documentation](https://docs.plesk.com/en-US/obsidian/administrator-guide/plesk-administration/using-docker.75823/).
+- A domain (or subdomain, e.g. `kala.example.com`) whose DNS `A` record points at the server, added to Plesk as a website with a Let's Encrypt certificate (Websites & Domains → the domain → SSL/TLS Certificates), and HTTP→HTTPS redirect enabled.
+- Ports 80 and 443 open in the Strato firewall. Kala's own port is **not** opened: it is bound to localhost.
+
+**1. Put the code on the server — outside `httpdocs`**
+
+Anything inside a domain's web root can be downloaded, and the checkout will contain your `.env`. Clone next to the web root instead, over SSH (or as root):
+
+```bash
+cd /var/www/vhosts/kala.example.com
+git clone https://github.com/Bojanni050/tabla-kanban.git kala
+cd kala
+```
+
+**2. Create `.env`**
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+Edit it (values as described in step 3 above), setting in particular:
+
+```
+POSTGRES_PASSWORD=<openssl rand -hex 24>
+SESSION_SECRET=<openssl rand -hex 32>
+COOKIE_SECURE=true                      # Plesk serves Kala over HTTPS
+KALA_BIND_ADDRESS=127.0.0.1             # only Plesk's nginx can reach Kala
+KALA_PORT=8080                          # pick a free port: ss -ltn | grep 8080
+KALA_PUBLIC_URL=https://kala.example.com
+```
+
+**3. Build and start the stack**
+
+*Over SSH (most reliable):*
+
+```bash
+cd /var/www/vhosts/kala.example.com/kala
+docker compose up -d --build
+docker compose ps        # postgres, backend, frontend should all become "healthy"
+```
+
+*Or in the Plesk UI:* open the Docker extension, use **Compose**, add a project from a file in the domain's home directory (*Webspace*) and select `kala/docker-compose.yml`, then deploy. Plesk builds the images from the checkout. Make sure the `.env` next to the compose file is picked up (the deployed stack must show your `POSTGRES_*` values, not empty ones); if not, use the SSH method.
+
+**4. Send the domain to the container**
+
+- *Plesk Docker proxy rules (documented by Plesk):* in Docker → Containers → `kala-frontend-1` → Settings, turn off **Automatic port mapping** and map container port `8080` to host port `8080`; then Websites & Domains → the domain → **Docker Proxy Rules** → Add Rule with URL `/`, that container and that port.
+- *Or plain nginx directives:* Websites & Domains → the domain → **Apache & nginx Settings**, untick **Proxy mode**, and add to **Additional nginx directives**:
+
+  ```nginx
+  location ^~ / {
+      proxy_pass http://127.0.0.1:8080;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_read_timeout 3600s;
+  }
+  ```
+
+The forwarded protocol header is what lets Kala mark its session cookie `Secure`. Real-time updates (Server-Sent Events) work through Plesk's nginx because Kala's frontend container sends `X-Accel-Buffering: no` on the stream, which tells Plesk's nginx not to buffer it.
+
+**5. Check it**
+
+```bash
+curl -i https://kala.example.com/api/health       # {"status":"ok"}
+ss -ltn | grep 8080                               # must show 127.0.0.1:8080, not 0.0.0.0
+```
+
+Then open `https://kala.example.com`, register, and open the same board in two browsers to confirm live updates.
+
+**Updating and backups**
+
+```bash
+cd /var/www/vhosts/kala.example.com/kala
+git pull && docker compose up -d --build
+```
+
+Plesk's own backups do **not** include Docker volumes. Schedule the PostgreSQL backup from section 9 (for example as a Plesk *Scheduled Task*) and copy the dump off the server.
+
 ---
 
 ## Local development

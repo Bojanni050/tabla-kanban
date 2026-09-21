@@ -79,7 +79,9 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${KALA_PORT:-8080}:8080"
+      # Set KALA_BIND_ADDRESS=127.0.0.1 when a reverse proxy on the same host (e.g. Plesk)
+      # fronts Kala, so the plain-HTTP port is not reachable from the internet.
+      - "${KALA_BIND_ADDRESS:-0.0.0.0}:${KALA_PORT:-8080}:8080"
     networks:
       - edge
     healthcheck:
