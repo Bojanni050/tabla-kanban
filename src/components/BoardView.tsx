@@ -15,19 +15,24 @@ import {
   Calendar as CalendarIcon,
   MoreHorizontal,
   Users,
+  LayoutGrid,
+  SearchX,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardWithDetails, Card, Label, Priority } from '@/types';
+import type { BoardWithDetails, Card, Label, Priority, BoardMember } from '@/types';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -44,10 +49,14 @@ import { cn } from '@/lib/utils';
 import { ListView } from './ListView';
 import { CardDetailModal } from './CardDetailModal';
 import { MembersDialog } from './MembersDialog';
+import { EmptyState } from './EmptyState';
+import { AvatarStack } from './MemberAvatar';
+import { ROLE_META } from './MemberAvatar';
 import { canEditBoard } from '@/lib/roles';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -55,17 +64,17 @@ import {
 type DueDateFilterOption = 'all' | 'overdue' | 'today' | 'this_week' | 'no_due_date';
 
 const DUE_DATE_OPTIONS: { id: DueDateFilterOption; label: string }[] = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'All dates' },
   { id: 'overdue', label: 'Overdue' },
   { id: 'today', label: 'Due today' },
   { id: 'this_week', label: 'Due this week' },
   { id: 'no_due_date', label: 'No due date' },
 ];
 
-const PRIORITY_OPTIONS: { id: Priority; label: string; colorClass: string }[] = [
-  { id: 'HIGH', label: 'High', colorClass: 'text-rose-600 dark:text-rose-400' },
-  { id: 'MEDIUM', label: 'Medium', colorClass: 'text-amber-600 dark:text-amber-400' },
-  { id: 'LOW', label: 'Low', colorClass: 'text-blue-600 dark:text-blue-400' },
+const PRIORITY_OPTIONS: { id: Priority; label: string }[] = [
+  { id: 'HIGH', label: 'High' },
+  { id: 'MEDIUM', label: 'Medium' },
+  { id: 'LOW', label: 'Low' },
 ];
 
 const isCardOverdue = (dueDateStr: string | null | undefined) => {
@@ -96,24 +105,45 @@ interface BoardViewProps {
   onMoveCard: (cardId: string, fromListId: string, toListId: string, toIndex: number) => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
-  // Labels
   onCreateLabel?: (name: string, color: string) => Promise<Label | null>;
   onUpdateLabel?: (labelId: string, name: string, color: string) => Promise<boolean>;
   onDeleteLabel?: (labelId: string) => Promise<boolean>;
   onAddLabelToCard: (cardId: string, labelId: string) => Promise<boolean>;
   onRemoveLabelFromCard: (cardId: string, labelId: string) => Promise<boolean>;
-  // Checklist
   onAddChecklistItem: (cardId: string, title: string) => Promise<boolean>;
   onUpdateChecklistItem: (cardId: string, itemId: string, updates: { title?: string; completed?: boolean }) => Promise<boolean>;
   onDeleteChecklistItem: (cardId: string, itemId: string) => Promise<boolean>;
   onReorderChecklistItems: (cardId: string, itemIds: string[]) => Promise<boolean>;
-  // Archiving
   onArchiveCard?: (cardId: string) => Promise<boolean>;
   onRestoreCard?: (cardId: string) => Promise<boolean>;
-  // Sharing
   currentUserId: string;
   onLeftBoard: () => void;
   onOwnershipTransferred: () => void;
+}
+
+function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onClick}
+            aria-label={label}
+            title={label}
+            className="relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
+          >
+            {children}
+            {typeof badge === 'number' && badge > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white" style={{ background: 'var(--kala-coral)' }}>
+                {badge}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export function BoardView({
@@ -143,7 +173,6 @@ export function BoardView({
   onLeftBoard,
   onOwnershipTransferred,
 }: BoardViewProps) {
-  // UI hint only; the server enforces the role on every request
   const canEdit = canEditBoard(board.myRole);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -151,14 +180,22 @@ export function BoardView({
   const [isAddingList, setIsAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const listInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Archived cards state
   const [isArchivedCardsOpen, setIsArchivedCardsOpen] = useState(false);
   const [archivedCards, setArchivedCards] = useState<Card[]>([]);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
   const [cardToDeletePermanently, setCardToDeletePermanently] = useState<Card | null>(null);
   const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
   const [restoringCardId, setRestoringCardId] = useState<string | null>(null);
+
+  // Compact member preview for the header avatar stack (read-only, best effort)
+  const [memberPreview, setMemberPreview] = useState<BoardMember[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.getBoardMembers(board.id).then((d) => { if (!cancelled) setMemberPreview(d.members); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [board.id]);
 
   const handleOpenArchivedCards = async () => {
     setIsArchivedCardsOpen(true);
@@ -178,9 +215,7 @@ export function BoardView({
     setRestoringCardId(cardId);
     const ok = await onRestoreCard(cardId);
     setRestoringCardId(null);
-    if (ok) {
-      setArchivedCards((prev) => prev.filter((c) => c.id !== cardId));
-    }
+    if (ok) setArchivedCards((prev) => prev.filter((c) => c.id !== cardId));
   };
 
   const handleConfirmPermanentDelete = async () => {
@@ -194,26 +229,40 @@ export function BoardView({
     }
   };
 
-  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
   const [dueDateFilter, setDueDateFilter] = useState<DueDateFilterOption>('all');
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 
-  // Number of active filters in the filter popover (excluding text search)
-  const filterBadgeCount =
-    selectedLabelIds.length +
-    selectedPriorities.length +
-    (dueDateFilter !== 'all' ? 1 : 0);
+  const filterBadgeCount = selectedLabelIds.length + selectedPriorities.length + (dueDateFilter !== 'all' ? 1 : 0);
 
-  // True if any search or filter criteria is currently applied
   const isFiltered = Boolean(
-    searchQuery.trim() ||
-    selectedLabelIds.length > 0 ||
-    selectedPriorities.length > 0 ||
-    dueDateFilter !== 'all'
+    searchQuery.trim() || selectedLabelIds.length > 0 || selectedPriorities.length > 0 || dueDateFilter !== 'all'
   );
+
+  // Reset filters when switching boards
+  useEffect(() => {
+    setSearchQuery('');
+    setSelectedLabelIds([]);
+    setSelectedPriorities([]);
+    setDueDateFilter('all');
+    setSelectedCardId(null);
+  }, [board.id]);
+
+  // "/" focuses search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const handleClearAllFilters = () => {
     setSearchQuery('');
@@ -223,18 +272,13 @@ export function BoardView({
   };
 
   const toggleLabelFilter = (labelId: string) => {
-    setSelectedLabelIds((prev) =>
-      prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]
-    );
+    setSelectedLabelIds((prev) => prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]);
   };
 
   const togglePriorityFilter = (priority: Priority) => {
-    setSelectedPriorities((prev) =>
-      prev.includes(priority) ? prev.filter((p) => p !== priority) : [...prev, priority]
-    );
+    setSelectedPriorities((prev) => prev.includes(priority) ? prev.filter((p) => p !== priority) : [...prev, priority]);
   };
 
-  // Find the selected card and its list
   const selectedCard = selectedCardId
     ? board.lists.flatMap((l) => l.cards).find((c) => c.id === selectedCardId) ?? null
     : null;
@@ -242,68 +286,37 @@ export function BoardView({
     ? board.lists.find((l) => l.cards.some((c) => c.id === selectedCardId))
     : undefined;
 
-  // Filtered lists computation (preserves list layout even if 0 matching cards)
   const filteredLists = useMemo(() => {
     if (!isFiltered) return board.lists;
-
     const q = searchQuery.trim().toLowerCase();
-
     return board.lists.map((list) => ({
       ...list,
       cards: list.cards.filter((card) => {
-        // Search filter (title or description)
         if (q) {
           const titleMatch = card.title.toLowerCase().includes(q);
-          const descMatch = card.description
-            ? card.description.toLowerCase().includes(q)
-            : false;
+          const descMatch = card.description ? card.description.toLowerCase().includes(q) : false;
           if (!titleMatch && !descMatch) return false;
         }
-
-        // Label filter (must match at least one selected label)
         if (selectedLabelIds.length > 0) {
-          const hasMatchingLabel = card.labels?.some((l) => selectedLabelIds.includes(l.id));
-          if (!hasMatchingLabel) return false;
+          if (!card.labels?.some((l) => selectedLabelIds.includes(l.id))) return false;
         }
-
-        // Priority filter (must match one selected priority)
         if (selectedPriorities.length > 0) {
-          if (!card.priority || !selectedPriorities.includes(card.priority)) {
-            return false;
-          }
+          if (!card.priority || !selectedPriorities.includes(card.priority)) return false;
         }
-
-        // Due date filter
-        if (dueDateFilter === 'overdue' && !isCardOverdue(card.dueDate)) {
-          return false;
-        }
-        if (dueDateFilter === 'today' && !isCardDueToday(card.dueDate)) {
-          return false;
-        }
-        if (dueDateFilter === 'this_week' && !isCardDueThisWeek(card.dueDate)) {
-          return false;
-        }
-        if (dueDateFilter === 'no_due_date' && card.dueDate) {
-          return false;
-        }
-
+        if (dueDateFilter === 'overdue' && !isCardOverdue(card.dueDate)) return false;
+        if (dueDateFilter === 'today' && !isCardDueToday(card.dueDate)) return false;
+        if (dueDateFilter === 'this_week' && !isCardDueThisWeek(card.dueDate)) return false;
+        if (dueDateFilter === 'no_due_date' && card.dueDate) return false;
         return true;
       }),
     }));
   }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter]);
 
-  const totalCardsCount = useMemo(() => {
-    return board.lists.reduce((acc, l) => acc + l.cards.length, 0);
-  }, [board.lists]);
-
-  const filteredCardsCount = useMemo(() => {
-    return filteredLists.reduce((acc, l) => acc + l.cards.length, 0);
-  }, [filteredLists]);
+  const totalCardsCount = useMemo(() => board.lists.reduce((acc, l) => acc + l.cards.length, 0), [board.lists]);
+  const filteredCardsCount = useMemo(() => filteredLists.reduce((acc, l) => acc + l.cards.length, 0), [filteredLists]);
 
   useEffect(() => {
-    if (isAddingList && listInputRef.current) {
-      listInputRef.current.focus();
-    }
+    if (isAddingList && listInputRef.current) listInputRef.current.focus();
   }, [isAddingList]);
 
   const handleAddList = () => {
@@ -317,389 +330,322 @@ export function BoardView({
     setIsAddingList(false);
   };
 
-  return (
-    <div className="flex h-full flex-col">
-      {/* Board header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={onToggleSidebar}
-            title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          >
-            {sidebarCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </Button>
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">
-            {board.name}
-          </h1>
-          <span className="text-sm text-muted-foreground">
-            {board.workspace?.name}
-          </span>
-          {!canEdit && (
-            <Badge variant="secondary" className="font-normal text-xs">
-              View only
-            </Badge>
-          )}
-        </div>
+  const myRoleMeta = ROLE_META[board.myRole];
 
-        {/* Header controls: Search, Filter Popover, Labels */}
-        <div className="flex items-center gap-2">
-          {/* Search field */}
-          <div className="relative flex items-center w-48 sm:w-60">
-            <Search className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search cards..."
-              className="h-8 pl-8 pr-7 text-xs bg-background"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 text-muted-foreground hover:text-foreground p-0.5 rounded"
-                title="Clear search"
-              >
-                <X className="h-3 w-3" />
-              </button>
+  return (
+    <div className="flex h-full flex-col bg-[#FAFAF8]">
+      {/* ── Board header ─────────────────────────────────── */}
+      <header className="border-b bg-white" style={{ borderColor: 'var(--kala-line)' }}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+          {/* Left: sidebar toggle + breadcrumb */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <HeaderIconButton label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'} onClick={onToggleSidebar}>
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </HeaderIconButton>
+            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+              <span className="hidden shrink-0 text-muted-foreground sm:inline">{board.workspace?.name}</span>
+              <span className="hidden shrink-0 text-muted-foreground/50 sm:inline" aria-hidden>/</span>
+              <h1 className="truncate text-[15px] font-semibold tracking-tight text-foreground">{board.name}</h1>
+            </nav>
+            {!canEdit ? (
+              <Badge variant="secondary" className="shrink-0 text-[11px] font-medium">View only</Badge>
+            ) : (
+              <span className="hidden shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground md:inline-flex" style={{ borderColor: 'var(--kala-line)' }} title={myRoleMeta.description}>
+                <myRoleMeta.icon className="h-3 w-3" aria-hidden />
+                {myRoleMeta.label}
+              </span>
             )}
           </div>
 
-          {/* Filter Popover */}
-          <Popover open={isFilterPopoverOpen} onOpenChange={setIsFilterPopoverOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant={filterBadgeCount > 0 ? 'secondary' : 'outline'}
-                size="sm"
-                className={cn(
-                  'h-8 gap-1.5 text-xs bg-card',
-                  filterBadgeCount > 0 && 'font-medium border-primary/40 text-primary bg-primary/10'
-                )}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                <span>Filter</span>
-                {filterBadgeCount > 0 && (
-                  <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                    {filterBadgeCount}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-3">
-              <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Filters
-                </h4>
-                {filterBadgeCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedLabelIds([]);
-                      setSelectedPriorities([]);
-                      setDueDateFilter('all');
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
+          {/* Right: grouped actions */}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {/* Search — immediately accessible */}
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                ref={searchInputRef}
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search cards..."
+                aria-label="Search cards"
+                className="h-8 w-44 bg-white pl-8 pr-12 text-[13px] lg:w-60"
+              />
+              {searchQuery ? (
+                <button type="button" onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <kbd className="kala-kbd pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 sm:inline-flex" aria-hidden>/</kbd>
+              )}
+            </div>
 
-              {/* Due date filter */}
-              <div className="space-y-1 mb-3">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  Due Date
+            {/* Filters */}
+            <Popover open={isFilterPopoverOpen} onOpenChange={setIsFilterPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  aria-label={filterBadgeCount > 0 ? `Filters, ${filterBadgeCount} active` : 'Open filters'}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1.5 rounded-md border bg-white px-2.5 text-[13px] transition-colors hover:bg-muted/60',
+                    filterBadgeCount > 0 ? 'border-[#CE6F51]/50 font-medium text-[#9A4A30]' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  style={{ borderColor: filterBadgeCount > 0 ? '#E3BBA9' : 'var(--kala-line)' }}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+                  <span className="hidden sm:inline">Filters</span>
+                  {filterBadgeCount > 0 && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white" style={{ background: 'var(--kala-coral)' }}>
+                      {filterBadgeCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-3" sideOffset={8}>
+                <div className="mb-2 flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--kala-line)' }}>
+                  <h4 className="kala-section-label">Filters</h4>
+                  {filterBadgeCount > 0 && (
+                    <button type="button" onClick={() => { setSelectedLabelIds([]); setSelectedPriorities([]); setDueDateFilter('all'); }} className="text-xs font-medium text-[#9A4A30] hover:underline">
+                      Reset
+                    </button>
+                  )}
                 </div>
-                {DUE_DATE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setDueDateFilter(opt.id)}
-                    className={cn(
-                      'w-full flex items-center justify-between px-2 py-1 rounded text-xs text-left transition-colors',
-                      dueDateFilter === opt.id
-                        ? 'bg-accent font-medium text-accent-foreground'
-                        : 'hover:bg-muted text-foreground'
-                    )}
-                  >
-                    <span>{opt.label}</span>
-                    {dueDateFilter === opt.id && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </button>
-                ))}
-              </div>
+                <div className="mb-3 space-y-0.5">
+                  <p className="kala-section-label px-1 pb-1">Due date</p>
+                  {DUE_DATE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setDueDateFilter(opt.id)}
+                      aria-pressed={dueDateFilter === opt.id}
+                      className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', dueDateFilter === opt.id ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                    >
+                      <span>{opt.label}</span>
+                      {dueDateFilter === opt.id && <Check className="h-3.5 w-3.5 text-[#7FA693]" aria-hidden />}
+                    </button>
+                  ))}
+                </div>
+                <div className="mb-3 space-y-0.5">
+                  <p className="kala-section-label px-1 pb-1">Priority</p>
+                  {PRIORITY_OPTIONS.map((opt) => (
+                    <label key={opt.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-muted/70">
+                      <Checkbox checked={selectedPriorities.includes(opt.id)} onCheckedChange={() => togglePriorityFilter(opt.id)} aria-label={`Filter by ${opt.label} priority`} />
+                      <Flag className="h-3 w-3 text-muted-foreground" aria-hidden />
+                      <span>{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="space-y-0.5">
+                  <p className="kala-section-label px-1 pb-1">Labels</p>
+                  {(board.labels || []).length > 0 ? (
+                    <div className="max-h-36 space-y-0.5 overflow-y-auto pr-1">
+                      {(board.labels || []).map((label) => (
+                        <label key={label.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-muted/70">
+                          <Checkbox checked={selectedLabelIds.includes(label.id)} onCheckedChange={() => toggleLabelFilter(label.id)} aria-label={`Filter by label ${label.name}`} />
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: label.color }} aria-hidden />
+                          <span className="truncate">{label.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="px-2 py-1 text-xs text-muted-foreground">No labels on this board</p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
 
-              {/* Priority filter */}
-              <div className="space-y-1 mb-3">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  Priority
-                </div>
-                {PRIORITY_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.id}
-                    className="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer text-xs text-foreground"
-                  >
-                    <Checkbox
-                      checked={selectedPriorities.includes(opt.id)}
-                      onCheckedChange={() => togglePriorityFilter(opt.id)}
-                    />
-                    <Flag className={cn('h-3 w-3', opt.colorClass)} />
-                    <span>{opt.label}</span>
-                  </label>
-                ))}
-              </div>
+            <span className="mx-0.5 hidden h-5 w-px bg-border sm:inline-block" aria-hidden />
 
-              {/* Labels filter */}
-              <div className="space-y-1">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  Labels
-                </div>
-                {(board.labels || []).length > 0 ? (
-                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                    {(board.labels || []).map((label) => (
-                      <label
-                        key={label.id}
-                        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer text-xs text-foreground"
+            {/* Members + Share */}
+            {memberPreview.length > 0 && (
+              <button onClick={() => setIsMembersOpen(true)} className="hidden rounded-md p-1 hover:bg-muted/60 md:block" aria-label="View members" title="View members">
+                <AvatarStack people={memberPreview} max={4} />
+              </button>
+            )}
+            <Button size="sm" onClick={() => setIsMembersOpen(true)} className="h-8 gap-1.5 bg-[#2A2F36] px-3 text-[13px] text-white hover:bg-[#1E2329]">
+              <Users className="h-3.5 w-3.5" aria-hidden />
+              Share
+            </Button>
+
+            <HeaderIconButton label={`Board labels (${board.labels?.length ?? 0})`} onClick={() => setIsBoardLabelsOpen(true)}>
+              <Tag className="h-4 w-4" />
+            </HeaderIconButton>
+
+            <DropdownMenu>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <DropdownMenuTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <button
+                        aria-label="Board menu"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
                       >
-                        <Checkbox
-                          checked={selectedLabelIds.includes(label.id)}
-                          onCheckedChange={() => toggleLabelFilter(label.id)}
-                        />
-                        <span
-                          className="h-2.5 w-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: label.color }}
-                        />
-                        <span className="truncate">{label.name}</span>
-                      </label>
-                    ))}
+                        <MoreHorizontal className="h-4 w-4" aria-hidden />
+                      </button>
+                    </TooltipTrigger>
+                  </DropdownMenuTrigger>
+                  <TooltipContent side="bottom" className="text-xs">Board menu</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => setIsBoardLabelsOpen(true)} className="cursor-pointer text-[13px]">
+                  <Tag className="mr-2 h-3.5 w-3.5" /> Manage labels ({board.labels?.length ?? 0})
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleOpenArchivedCards} className="cursor-pointer text-[13px]">
+                  <Archive className="mr-2 h-3.5 w-3.5" /> Archived cards
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Active filters — always visible when set, with Clear */}
+        {isFiltered && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t bg-[#F5F4F1] px-4 py-2 text-xs" style={{ borderColor: 'var(--kala-line)' }} role="status" aria-label="Active filters">
+            <span className="mr-1 font-medium text-muted-foreground">Active:</span>
+            {searchQuery.trim() && (
+              <Badge variant="secondary" className="gap-1 bg-white py-0.5 pr-1 text-xs font-normal">
+                <Search className="h-3 w-3 text-muted-foreground" aria-hidden />
+                <span>&ldquo;{searchQuery.trim()}&rdquo;</span>
+                <button type="button" onClick={() => setSearchQuery('')} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground" aria-label="Remove search filter"><X className="h-3 w-3" /></button>
+              </Badge>
+            )}
+            {dueDateFilter !== 'all' && (
+              <Badge variant="secondary" className="gap-1 bg-white py-0.5 pr-1 text-xs font-normal">
+                <CalendarIcon className="h-3 w-3 text-muted-foreground" aria-hidden />
+                <span>{DUE_DATE_OPTIONS.find((o) => o.id === dueDateFilter)?.label}</span>
+                <button type="button" onClick={() => setDueDateFilter('all')} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground" aria-label="Remove due date filter"><X className="h-3 w-3" /></button>
+              </Badge>
+            )}
+            {selectedPriorities.map((priority) => (
+              <Badge key={priority} variant="secondary" className="gap-1 bg-white py-0.5 pr-1 text-xs font-normal">
+                <Flag className="h-3 w-3 text-muted-foreground" aria-hidden />
+                <span>{priority.charAt(0) + priority.slice(1).toLowerCase()}</span>
+                <button type="button" onClick={() => setSelectedPriorities((prev) => prev.filter((p) => p !== priority))} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground" aria-label={`Remove ${priority} priority filter`}><X className="h-3 w-3" /></button>
+              </Badge>
+            ))}
+            {selectedLabelIds.map((labelId) => {
+              const label = (board.labels || []).find((l) => l.id === labelId);
+              if (!label) return null;
+              return (
+                <Badge key={labelId} variant="secondary" className="gap-1.5 bg-white py-0.5 pr-1 text-xs font-normal">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} aria-hidden />
+                  <span>{label.name}</span>
+                  <button type="button" onClick={() => setSelectedLabelIds((prev) => prev.filter((id) => id !== labelId))} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground" aria-label={`Remove label ${label.name} filter`}><X className="h-3 w-3" /></button>
+                </Badge>
+              );
+            })}
+            <Button variant="ghost" size="sm" onClick={handleClearAllFilters} className="h-6 px-2 text-xs font-medium text-[#9A4A30] hover:bg-[#F6E4DC] hover:text-[#9A4A30]">
+              Clear filters
+            </Button>
+            <span className="ml-auto text-muted-foreground">Showing {filteredCardsCount} of {totalCardsCount} cards</span>
+          </div>
+        )}
+      </header>
+
+      {/* ── Board canvas ───────────────────────────────── */}
+      <div className="flex-1 overflow-x-auto overflow-y-hidden" role="region" aria-label={`Cards for board ${board.name}`}>
+        {board.lists.length === 0 && !isFiltered ? (
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="kala-card w-full max-w-md p-2">
+              <EmptyState
+                icon={<LayoutGrid className="h-5 w-5" />}
+                title={canEdit ? 'This board is empty' : 'No lists on this board'}
+                description={canEdit ? 'Add your first list to start organizing cards. Typical flow: To do, In progress, Done.' : 'There are no lists to show yet.'}
+                action={canEdit ? (
+                  isAddingList ? (
+                    <div className="flex w-72 items-center gap-2">
+                      <Input ref={listInputRef} value={newListTitle} onChange={(e) => setNewListTitle(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddList(); if (e.key === 'Escape') { setIsAddingList(false); setNewListTitle(''); } }}
+                        placeholder="Enter list title..." aria-label="New list title" className="h-9 bg-white text-sm" />
+                      <Button size="sm" onClick={handleAddList} className="h-9 bg-[#2A2F36] text-white hover:bg-[#1E2329]">Add</Button>
+                    </div>
+                  ) : (
+                    <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
+                      <Plus className="h-4 w-4" aria-hidden /> Add your first list
+                    </Button>
+                  )
+                ) : undefined}
+              />
+            </div>
+          </div>
+        ) : isFiltered && filteredCardsCount === 0 ? (
+          <div className="flex h-full items-start justify-center overflow-y-auto p-8">
+            <div className="flex w-full max-w-3xl flex-col gap-3">
+              <div className="kala-card">
+                <EmptyState
+                  icon={<SearchX className="h-5 w-5" />}
+                  title={searchQuery.trim() ? `No results for "${searchQuery.trim()}"` : 'No cards match these filters'}
+                  description="Try a different keyword, remove a filter, or clear everything to see the full board."
+                  action={<Button variant="outline" size="sm" onClick={handleClearAllFilters} className="bg-white">Clear filters</Button>}
+                />
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 opacity-60" aria-hidden>
+                {filteredLists.slice(0, 4).map((list) => (
+                  <div key={list.id} className="kala-list w-72 shrink-0 rounded-xl p-2.5">
+                    <p className="px-1 py-1 text-[13px] font-semibold text-foreground">{list.title}</p>
+                    <p className="px-1 pb-1 text-xs text-muted-foreground">No matching cards</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full items-start gap-3 overflow-y-hidden p-4">
+            {filteredLists.map((list) => (
+              <ListView
+                key={list.id}
+                list={list}
+                isFiltered={isFiltered}
+                onAddCard={onAddCard}
+                onDeleteList={onDeleteList}
+                onDeleteCard={onDeleteCard}
+                onEditCard={onEditCard}
+                onReorderCard={onReorderCard}
+                onMoveCard={onMoveCard}
+                onOpenCard={(c) => setSelectedCardId(c.id)}
+                readOnly={!canEdit}
+              />
+            ))}
+            {canEdit && (
+              <div className="w-72 shrink-0">
+                {isAddingList ? (
+                  <div className="kala-list rounded-xl p-2.5">
+                    <Input
+                      ref={listInputRef}
+                      value={newListTitle}
+                      onChange={(e) => setNewListTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleAddList();
+                        if (e.key === 'Escape') { setIsAddingList(false); setNewListTitle(''); }
+                      }}
+                      placeholder="Enter list title..."
+                      aria-label="New list title"
+                      className="h-9 border bg-white text-sm"
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button size="sm" onClick={handleAddList} className="h-8 bg-[#2A2F36] text-xs text-white hover:bg-[#1E2329]">Add list</Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Cancel adding list" onClick={() => { setIsAddingList(false); setNewListTitle(''); }}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground px-2 py-1">
-                    No labels on this board
-                  </p>
+                  <button
+                    onClick={() => setIsAddingList(true)}
+                    className="flex w-full items-center gap-1.5 rounded-xl border border-dashed bg-white/60 px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-white hover:text-foreground"
+                    style={{ borderColor: 'var(--kala-line)' }}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden />
+                    Add another list
+                  </button>
                 )}
               </div>
-            </PopoverContent>
-          </Popover>
-
-          {/* Share / members button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsMembersOpen(true)}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground bg-card"
-          >
-            <Users className="h-3.5 w-3.5" />
-            <span>Share</span>
-          </Button>
-
-          {/* Board labels management button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsBoardLabelsOpen(true)}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground bg-card"
-          >
-            <Tag className="h-3.5 w-3.5" />
-            <span>Labels ({board.labels?.length ?? 0})</span>
-          </Button>
-
-          {/* Board menu dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground bg-card"
-                title="Board menu"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={handleOpenArchivedCards}
-                className="cursor-pointer text-xs"
-              >
-                <Archive className="mr-2 h-3.5 w-3.5" />
-                <span>Archived cards</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setIsBoardLabelsOpen(true)}
-                className="cursor-pointer text-xs"
-              >
-                <Tag className="mr-2 h-3.5 w-3.5" />
-                <span>Labels ({board.labels?.length ?? 0})</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
-      {/* Active filters summary bar */}
-      {isFiltered && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/20 px-4 py-2 text-xs">
-          <span className="text-muted-foreground font-medium mr-1">
-            Filters:
-          </span>
-
-          {/* Search chip */}
-          {searchQuery.trim() && (
-            <Badge variant="secondary" className="gap-1 font-normal text-xs py-0.5 pr-1">
-              <span>Search: &ldquo;{searchQuery.trim()}&rdquo;</span>
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="rounded-full p-0.5 hover:bg-muted text-muted-foreground hover:text-foreground"
-                title="Remove search filter"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          )}
-
-          {/* Due date chip */}
-          {dueDateFilter !== 'all' && (
-            <Badge variant="secondary" className="gap-1 font-normal text-xs py-0.5 pr-1">
-              <span>Due: {DUE_DATE_OPTIONS.find((o) => o.id === dueDateFilter)?.label}</span>
-              <button
-                type="button"
-                onClick={() => setDueDateFilter('all')}
-                className="rounded-full p-0.5 hover:bg-muted text-muted-foreground hover:text-foreground"
-                title="Remove due date filter"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          )}
-
-          {/* Priority chips */}
-          {selectedPriorities.map((priority) => (
-            <Badge key={priority} variant="secondary" className="gap-1 font-normal text-xs py-0.5 pr-1">
-              <span>Priority: {priority.charAt(0) + priority.slice(1).toLowerCase()}</span>
-              <button
-                type="button"
-                onClick={() => setSelectedPriorities((prev) => prev.filter((p) => p !== priority))}
-                className="rounded-full p-0.5 hover:bg-muted text-muted-foreground hover:text-foreground"
-                title={`Remove priority ${priority} filter`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
-
-          {/* Label chips */}
-          {selectedLabelIds.map((labelId) => {
-            const label = (board.labels || []).find((l) => l.id === labelId);
-            if (!label) return null;
-            return (
-              <Badge key={labelId} variant="secondary" className="gap-1.5 font-normal text-xs py-0.5 pr-1">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
-                <span>{label.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedLabelIds((prev) => prev.filter((id) => id !== labelId))}
-                  className="rounded-full p-0.5 hover:bg-muted text-muted-foreground hover:text-foreground"
-                  title={`Remove label ${label.name} filter`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            );
-          })}
-
-          {/* Clear all */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClearAllFilters}
-            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Clear all
-          </Button>
-
-          <span className="ml-auto text-muted-foreground">
-            Showing {filteredCardsCount} of {totalCardsCount} cards
-          </span>
-        </div>
-      )}
-
-      {/* Lists - horizontal scroll */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="flex h-full gap-3 p-4">
-          {filteredLists.map((list) => (
-            <ListView
-              key={list.id}
-              list={list}
-              isFiltered={isFiltered}
-              onAddCard={onAddCard}
-              onDeleteList={onDeleteList}
-              onDeleteCard={onDeleteCard}
-              onEditCard={onEditCard}
-              onReorderCard={onReorderCard}
-              onMoveCard={onMoveCard}
-              onOpenCard={(c) => setSelectedCardId(c.id)}
-              readOnly={!canEdit}
-            />
-          ))}
-
-          {/* Add list */}
-          {canEdit && (
-          <div className="w-72 shrink-0">
-            {isAddingList ? (
-              <div className="rounded-xl border border-border bg-muted/40 p-2.5">
-                <Input
-                  ref={listInputRef}
-                  value={newListTitle}
-                  onChange={(e) => setNewListTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddList();
-                    if (e.key === 'Escape') {
-                      setIsAddingList(false);
-                      setNewListTitle('');
-                    }
-                  }}
-                  placeholder="Enter list title..."
-                  className="h-8 text-sm"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <Button size="sm" onClick={handleAddList} className="h-7 text-xs">
-                    Add list
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => {
-                      setIsAddingList(false);
-                      setNewListTitle('');
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setIsAddingList(true)}
-                className="flex w-full items-center gap-1.5 rounded-xl border border-dashed border-border/60 bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add another list</span>
-              </button>
             )}
           </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Card Detail Modal */}
       <CardDetailModal
         card={selectedCard}
         listTitle={selectedList?.title}
@@ -709,9 +655,7 @@ export function BoardView({
         onUpdateCard={onUpdateCard}
         onDeleteCard={async (cardId) => {
           const ok = await onDeleteCard(cardId);
-          if (ok) {
-            setSelectedCardId(null);
-          }
+          if (ok) setSelectedCardId(null);
           return ok;
         }}
         onCreateLabel={onCreateLabel}
@@ -737,150 +681,89 @@ export function BoardView({
         onOwnershipTransferred={onOwnershipTransferred}
       />
 
-      {/* Board Labels Management Dialog */}
       <Dialog open={isBoardLabelsOpen} onOpenChange={setIsBoardLabelsOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Board Labels</DialogTitle>
+            <DialogTitle>Board labels</DialogTitle>
+            <DialogDescription>Labels help you categorize cards. Open any card to create or assign them.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 py-2">
+          <div className="space-y-2 py-1">
             {(board.labels || []).map((label) => (
-              <div
-                key={label.id}
-                className="flex items-center justify-between p-2 rounded-lg border border-border"
-              >
-                <span
-                  style={{ backgroundColor: label.color }}
-                  className="px-2.5 py-1 rounded text-xs font-semibold text-white tracking-wide shadow-xs"
-                >
-                  {label.name}
+              <div key={label.id} className="flex items-center justify-between rounded-lg border bg-white p-2 pl-2.5" style={{ borderColor: 'var(--kala-line)' }}>
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: label.color }} aria-hidden />
+                  <span className="text-[13px] font-medium text-foreground">{label.name}</span>
                 </span>
                 {onDeleteLabel && canEdit && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => onDeleteLabel(label.id)}
-                    title="Delete label from board"
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => onDeleteLabel(label.id)} aria-label={`Delete label ${label.name}`}>
                     <X className="h-4 w-4" />
                   </Button>
                 )}
               </div>
             ))}
             {(board.labels || []).length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No labels created for this board yet. Open any card to create labels.
-              </p>
+              <EmptyState compact icon={<Tag className="h-4 w-4" />} title="No labels yet" description="Open any card and choose Manage labels to create your first one." />
             )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Archived Cards Dialog */}
       <Dialog open={isArchivedCardsOpen} onOpenChange={setIsArchivedCardsOpen}>
-        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
+        <DialogContent className="flex max-h-[85vh] max-w-xl flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Archive className="h-5 w-5 text-muted-foreground" />
-              <span>Archived cards</span>
+              <Archive className="h-5 w-5 text-muted-foreground" aria-hidden />
+              Archived cards
             </DialogTitle>
+            <DialogDescription>Archived cards are hidden from the board until you restore them.</DialogDescription>
           </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-2">
+          <div className="flex-1 space-y-2 overflow-y-auto py-2 pr-1">
             {isLoadingArchived ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">
-                Loading archived cards...
+              <div className="space-y-2" aria-label="Loading archived cards">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="rounded-lg border p-3" style={{ borderColor: 'var(--kala-line)' }}>
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="mt-2 h-3 w-1/3" />
+                  </div>
+                ))}
               </div>
             ) : archivedCards.length === 0 ? (
-              <div className="py-12 text-center space-y-2">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                  <Archive className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium text-foreground">No archived cards</p>
-                <p className="text-xs text-muted-foreground">
-                  Cards you archive from this board will appear here.
-                </p>
-              </div>
+              <EmptyState icon={<Archive className="h-5 w-5" />} title="No archived cards" description="Cards you archive from this board will appear here." />
             ) : (
               archivedCards.map((card) => (
-                <div
-                  key={card.id}
-                  className="rounded-lg border border-border bg-card p-3 shadow-xs transition-colors hover:border-border/80"
-                >
+                <div key={card.id} className="rounded-lg border bg-white p-3" style={{ borderColor: 'var(--kala-line)' }}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1 min-w-0 flex-1">
-                      <h4 className="text-sm font-medium text-foreground leading-snug break-words">
-                        {card.title}
-                      </h4>
-                      <p className="text-xs text-muted-foreground">
-                        List:{' '}
-                        <span className="font-medium text-foreground/80">
-                          {card.list?.title || 'Unknown list'}
-                        </span>
-                      </p>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <h4 className="break-words text-sm font-medium leading-snug text-foreground">{card.title}</h4>
+                      <p className="text-xs text-muted-foreground">List: <span className="font-medium text-foreground/80">{card.list?.title || 'Unknown list'}</span></p>
                     </div>
-
                     {canEdit && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRestoreCard(card.id)}
-                        disabled={restoringCardId === card.id}
-                        className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
-                        title="Restore card to its list"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        <span>{restoringCardId === card.id ? 'Restoring...' : 'Restore'}</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setCardToDeletePermanently(card)}
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        title="Permanently delete card"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button variant="outline" size="sm" onClick={() => handleRestoreCard(card.id)} disabled={restoringCardId === card.id} className="h-7 gap-1 bg-white px-2 text-xs" aria-label={`Restore ${card.title}`}>
+                          <RotateCcw className="h-3 w-3" aria-hidden />
+                          <span>{restoringCardId === card.id ? 'Restoring...' : 'Restore'}</span>
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setCardToDeletePermanently(card)} className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Permanently delete ${card.title}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     )}
                   </div>
-
-                  {/* Badges: Labels, Priority, Due Date */}
                   {(card.labels?.length || card.priority || card.dueDate) ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/50">
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t pt-2" style={{ borderColor: 'var(--kala-line)' }}>
                       {card.labels?.map((label) => (
-                        <span
-                          key={label.id}
-                          style={{ backgroundColor: label.color }}
-                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white tracking-wide shadow-xs"
-                        >
-                          {label.name}
-                        </span>
+                        <span key={label.id} style={{ backgroundColor: label.color }} className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold text-white">{label.name}</span>
                       ))}
-
                       {card.priority && (
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border',
-                            card.priority === 'HIGH' &&
-                              'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900',
-                            card.priority === 'MEDIUM' &&
-                              'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900',
-                            card.priority === 'LOW' &&
-                              'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900'
-                          )}
-                        >
-                          <Flag className="h-2.5 w-2.5" />
-                          <span>{card.priority.charAt(0) + card.priority.slice(1).toLowerCase()}</span>
+                        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <Flag className="h-2.5 w-2.5" aria-hidden />
+                          {card.priority.charAt(0) + card.priority.slice(1).toLowerCase()}
                         </span>
                       )}
-
                       {card.dueDate && (
-                        <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border bg-muted text-muted-foreground border-border">
-                          <CalendarIcon className="h-2.5 w-2.5" />
-                          <span>Due: {format(new Date(card.dueDate), 'MMM d, yyyy')}</span>
+                        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <CalendarIcon className="h-2.5 w-2.5" aria-hidden />
+                          Due: {format(new Date(card.dueDate), 'MMM d, yyyy')}
                         </span>
                       )}
                     </div>
@@ -892,25 +775,18 @@ export function BoardView({
         </DialogContent>
       </Dialog>
 
-      {/* Permanent Delete Alert Dialog */}
-      <AlertDialog
-        open={!!cardToDeletePermanently}
-        onOpenChange={(open) => !isDeletingPermanently && !open && setCardToDeletePermanently(null)}
-      >
+      <AlertDialog open={!!cardToDeletePermanently} onOpenChange={(open) => !isDeletingPermanently && !open && setCardToDeletePermanently(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently delete card?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{cardToDeletePermanently?.title}&rdquo; will be permanently deleted from PostgreSQL. This action cannot be undone.
+              &ldquo;{cardToDeletePermanently?.title}&rdquo; will be permanently deleted. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeletingPermanently}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleConfirmPermanentDelete();
-              }}
+              onClick={(e) => { e.preventDefault(); handleConfirmPermanentDelete(); }}
               disabled={isDeletingPermanently}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

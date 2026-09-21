@@ -48,6 +48,16 @@ export default {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
+        kala: {
+          charcoal: '#2A2F36',
+          ink: '#1E2329',
+          coral: '#CE6F51',
+          coralSoft: '#F6E4DC',
+          sage: '#7FA693',
+          sageSoft: '#E2EDE7',
+          canvas: '#FAFAF8',
+          line: '#E8E6E1',
+        },
         chart: {
           1: 'hsl(var(--chart-1))',
           2: 'hsl(var(--chart-2))',
@@ -55,6 +65,10 @@ export default {
           4: 'hsl(var(--chart-4))',
           5: 'hsl(var(--chart-5))',
         },
+      },
+      boxShadow: {
+        kala: '0 1px 2px rgba(42, 47, 54, 0.05)',
+        'kala-md': '0 4px 16px -4px rgba(42, 47, 54, 0.12)',
       },
       keyframes: {
         'accordion-down': {

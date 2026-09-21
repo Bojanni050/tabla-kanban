@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { BoardView } from '@/components/BoardView';
 import { AuthPage } from '@/components/AuthPage';
 import { InvitePage } from '@/components/InvitePage';
+import { EmptyState } from '@/components/EmptyState';
+import { AppLoadingShell } from '@/components/LoadingStates';
+import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import type {
@@ -1130,11 +1134,7 @@ function App() {
   };
 
   if (authLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AppLoadingShell />;
   }
 
   if (!user) {
@@ -1164,15 +1164,15 @@ function App() {
   }
 
   if (loading && workspaces.length === 0) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AppLoadingShell />;
   }
 
+  const hasAnyBoards =
+    workspaces.some((w) => w.boards.length > 0) || sharedBoards.length > 0;
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <TooltipProvider delayDuration={200}>
+    <div className="flex h-screen overflow-hidden bg-[#FAFAF8]">
       <Sidebar
         workspaces={workspaces}
         sharedBoards={sharedBoards}
@@ -1194,7 +1194,7 @@ function App() {
         user={user}
         onLogout={handleLogout}
       />
-      <main className="flex-1 overflow-hidden">
+      <main className="min-w-0 flex-1 overflow-hidden">
         {board ? (
           <BoardView
             board={board}
@@ -1224,17 +1224,39 @@ function App() {
             onOwnershipTransferred={handleOwnershipTransferred}
           />
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground">
-              {error
-                ? 'Could not connect to the server. Please check your connection.'
-                : 'Select a board to get started, or create one in the sidebar.'}
-            </p>
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="kala-card w-full max-w-md p-2">
+              <EmptyState
+                icon={<LayoutDashboard className="h-5 w-5" />}
+                title={error ? 'Could not connect to the server' : hasAnyBoards ? 'Select a board to get started' : 'Welcome to Kala'}
+                description={
+                  error
+                    ? 'Please check your connection and try again.'
+                    : hasAnyBoards
+                      ? 'Choose a board from the sidebar to view its cards.'
+                      : 'Create a workspace, then your first board, to start organizing work. Boards you are invited to will appear under Shared with me.'
+                }
+                action={
+                  !error && !hasAnyBoards ? (
+                    <Button
+                      className="bg-[#2A2F36] text-white hover:bg-[#1E2329]"
+                      onClick={() => {
+                        const name = window.prompt('Workspace name');
+                        if (name?.trim()) handleCreateWorkspace(name.trim());
+                      }}
+                    >
+                      Create workspace
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </div>
           </div>
         )}
       </main>
       <Toaster />
     </div>
+    </TooltipProvider>
   );
 }
 
