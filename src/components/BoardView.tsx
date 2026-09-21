@@ -57,8 +57,9 @@ import { AiPanel } from './AiPanel';
 import { EmptyState } from './EmptyState';
 import { ListTemplatePicker } from './ListTemplatePicker';
 import type { ListTemplate } from '@/lib/list-templates';
-import { AvatarStack } from './MemberAvatar';
+import { AvatarStack, MemberAvatar } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
+import { displayName } from '@/lib/roles';
 import { canEditBoard } from '@/lib/roles';
 import {
   Dialog,
@@ -274,12 +275,16 @@ export function BoardView({
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [selectedPriorities, setSelectedPriorities] = useState<Priority[]>([]);
   const [dueDateFilter, setDueDateFilter] = useState<DueDateFilterOption>('all');
+  // 'all' | 'unassigned' | 'me' | a member's userId
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
   const [isFilterPopoverOpen, setIsFilterPopoverOpen] = useState(false);
 
-  const filterBadgeCount = selectedLabelIds.length + selectedPriorities.length + (dueDateFilter !== 'all' ? 1 : 0);
+  const assigneeFilterActive = assigneeFilter !== 'all';
+  const isMyCardsFilter = assigneeFilter === 'me' || assigneeFilter === currentUserId;
+  const filterBadgeCount = selectedLabelIds.length + selectedPriorities.length + (dueDateFilter !== 'all' ? 1 : 0) + (assigneeFilterActive ? 1 : 0);
 
   const isFiltered = Boolean(
-    searchQuery.trim() || selectedLabelIds.length > 0 || selectedPriorities.length > 0 || dueDateFilter !== 'all'
+    searchQuery.trim() || selectedLabelIds.length > 0 || selectedPriorities.length > 0 || dueDateFilter !== 'all' || assigneeFilterActive
   );
 
   // Reset filters when switching boards
@@ -288,6 +293,7 @@ export function BoardView({
     setSelectedLabelIds([]);
     setSelectedPriorities([]);
     setDueDateFilter('all');
+    setAssigneeFilter('all');
     setSelectedCardId(null);
   }, [board.id]);
 
@@ -310,6 +316,7 @@ export function BoardView({
     setSelectedLabelIds([]);
     setSelectedPriorities([]);
     setDueDateFilter('all');
+    setAssigneeFilter('all');
   };
 
   const toggleLabelFilter = (labelId: string) => {
@@ -348,10 +355,15 @@ export function BoardView({
         if (dueDateFilter === 'today' && !isCardDueToday(card.dueDate)) return false;
         if (dueDateFilter === 'this_week' && !isCardDueThisWeek(card.dueDate)) return false;
         if (dueDateFilter === 'no_due_date' && card.dueDate) return false;
+        if (assigneeFilterActive) {
+          if (assigneeFilter === 'unassigned') {
+            if (card.assigneeId) return false;
+          } else if (card.assigneeId !== (isMyCardsFilter ? currentUserId : assigneeFilter)) return false;
+        }
         return true;
       }),
     }));
-  }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter]);
+  }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter, assigneeFilter, assigneeFilterActive, isMyCardsFilter, currentUserId]);
 
   const totalCardsCount = useMemo(() => board.lists.reduce((acc, l) => acc + l.cards.length, 0), [board.lists]);
   const filteredCardsCount = useMemo(() => filteredLists.reduce((acc, l) => acc + l.cards.length, 0), [filteredLists]);
@@ -480,10 +492,49 @@ export function BoardView({
                 <div className="mb-2 flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--kala-line)' }}>
                   <h4 className="kala-section-label">Filters</h4>
                   {filterBadgeCount > 0 && (
-                    <button type="button" onClick={() => { setSelectedLabelIds([]); setSelectedPriorities([]); setDueDateFilter('all'); }} className="text-xs font-medium text-[#9A4A30] hover:underline">
+                    <button type="button" onClick={() => { setSelectedLabelIds([]); setSelectedPriorities([]); setDueDateFilter('all'); setAssigneeFilter('all'); }} className="text-xs font-medium text-[#9A4A30] hover:underline">
                       Reset
                     </button>
                   )}
+                </div>
+                <div className="mb-3 space-y-0.5">
+                  <p className="kala-section-label px-1 pb-1">Assignee</p>
+                  <button
+                    type="button"
+                    onClick={() => setAssigneeFilter('all')}
+                    aria-pressed={assigneeFilter === 'all'}
+                    className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', assigneeFilter === 'all' ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                  >
+                    <span>Everyone</span>
+                    {assigneeFilter === 'all' && <Check className="h-3.5 w-3.5 text-[#7FA693]" aria-hidden />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssigneeFilter('unassigned')}
+                    aria-pressed={assigneeFilter === 'unassigned'}
+                    className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', assigneeFilter === 'unassigned' ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                  >
+                    <span>Unassigned</span>
+                    {assigneeFilter === 'unassigned' && <Check className="h-3.5 w-3.5 text-[#7FA693]" aria-hidden />}
+                  </button>
+                  {memberPreview.map((member) => {
+                    const selected = assigneeFilter === member.userId || (isMyCardsFilter && member.userId === currentUserId);
+                    return (
+                      <button
+                        key={member.userId}
+                        type="button"
+                        onClick={() => setAssigneeFilter(member.userId)}
+                        aria-pressed={selected}
+                        className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-[13px] transition-colors', selected ? 'bg-[#F2F0EB] font-medium text-foreground' : 'text-foreground hover:bg-muted/70')}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <MemberAvatar person={member} size="sm" />
+                          <span className="truncate">{displayName(member)}</span>
+                        </span>
+                        {selected && <Check className="h-3.5 w-3.5 shrink-0 text-[#7FA693]" aria-hidden />}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="mb-3 space-y-0.5">
                   <p className="kala-section-label px-1 pb-1">Due date</p>
@@ -528,6 +579,27 @@ export function BoardView({
                 </div>
               </PopoverContent>
             </Popover>
+
+            {/* My Cards quick select */}
+            <div className="hidden items-center gap-0.5 rounded-md border bg-white p-0.5 md:inline-flex" style={{ borderColor: 'var(--kala-line)' }} role="group" aria-label="Card selection">
+              {(['all', 'me', 'unassigned'] as const).map((key) => {
+                const active = key === 'all' ? assigneeFilter === 'all' : key === 'me' ? isMyCardsFilter : assigneeFilter === 'unassigned';
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setAssigneeFilter(key)}
+                    className={cn(
+                      'inline-flex h-7 items-center rounded-[5px] px-2.5 text-[12px] font-medium transition-colors',
+                      active ? 'bg-[#F2F0EB] text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {key === 'all' ? 'All' : key === 'me' ? 'My Cards' : 'Unassigned'}
+                  </button>
+                );
+              })}
+            </div>
 
             <span className="mx-0.5 hidden h-5 w-px bg-border sm:inline-block" aria-hidden />
 
@@ -671,7 +743,17 @@ export function BoardView({
               <div className="kala-card">
                 <EmptyState
                   icon={<SearchX className="h-5 w-5" />}
-                  title={searchQuery.trim() ? `No results for "${searchQuery.trim()}"` : 'No cards match these filters'}
+                  title={
+                    searchQuery.trim()
+                      ? `No results for "${searchQuery.trim()}"`
+                      : assigneeFilter === 'unassigned'
+                        ? 'There are no unassigned cards'
+                        : isMyCardsFilter
+                          ? 'You have no assigned cards'
+                          : memberPreview.some((m) => m.userId === assigneeFilter)
+                            ? 'This team member has no assigned cards'
+                            : 'No cards match these filters'
+                  }
                   description="Try a different keyword, remove a filter, or clear everything to see the full board."
                   action={<Button variant="outline" size="sm" onClick={handleClearAllFilters} className="bg-white">Clear filters</Button>}
                 />
