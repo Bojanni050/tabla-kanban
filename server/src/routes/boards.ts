@@ -23,6 +23,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       lists: {
         include: {
           cards: {
+            where: { archived: false },
             include: {
               labels: true,
               checklistItems: {
@@ -42,6 +43,32 @@ router.get('/:id', async (req: Request, res: Response) => {
     return;
   }
   res.json(board);
+});
+
+// GET /api/boards/:id/archived - get all archived cards for a board
+router.get('/:id/archived', async (req: Request, res: Response) => {
+  try {
+    const archivedCards = await prisma.card.findMany({
+      where: {
+        archived: true,
+        list: { boardId: req.params.id },
+      },
+      include: {
+        labels: true,
+        checklistItems: {
+          orderBy: { position: 'asc' },
+        },
+        list: {
+          select: { id: true, title: true, boardId: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    res.json(archivedCards);
+  } catch (error) {
+    console.error('Error fetching archived cards:', error);
+    res.status(500).json({ error: 'Failed to fetch archived cards' });
+  }
 });
 
 // POST /api/boards

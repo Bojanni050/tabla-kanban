@@ -57,6 +57,7 @@ export interface Card {
   listId: string;
   priority?: Priority | null;
   dueDate?: string | null;
+  archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
   labels?: Label[];

@@ -9,14 +9,36 @@ import {
   SlidersHorizontal,
   Check,
   Flag,
+  Archive,
+  RotateCcw,
+  Trash2,
+  Calendar as CalendarIcon,
+  MoreHorizontal,
 } from 'lucide-react';
-import { isPast, isToday, isThisWeek, startOfDay } from 'date-fns';
+import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
 import type { BoardWithDetails, Card, Label, Priority } from '@/types';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { ListView } from './ListView';
 import { CardDetailModal } from './CardDetailModal';
@@ -82,6 +104,9 @@ interface BoardViewProps {
   onUpdateChecklistItem: (cardId: string, itemId: string, updates: { title?: string; completed?: boolean }) => Promise<boolean>;
   onDeleteChecklistItem: (cardId: string, itemId: string) => Promise<boolean>;
   onReorderChecklistItems: (cardId: string, itemIds: string[]) => Promise<boolean>;
+  // Archiving
+  onArchiveCard?: (cardId: string) => Promise<boolean>;
+  onRestoreCard?: (cardId: string) => Promise<boolean>;
 }
 
 export function BoardView({
@@ -105,12 +130,56 @@ export function BoardView({
   onUpdateChecklistItem,
   onDeleteChecklistItem,
   onReorderChecklistItems,
+  onArchiveCard,
+  onRestoreCard,
 }: BoardViewProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
   const [isAddingList, setIsAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const listInputRef = useRef<HTMLInputElement>(null);
+
+  // Archived cards state
+  const [isArchivedCardsOpen, setIsArchivedCardsOpen] = useState(false);
+  const [archivedCards, setArchivedCards] = useState<Card[]>([]);
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+  const [cardToDeletePermanently, setCardToDeletePermanently] = useState<Card | null>(null);
+  const [isDeletingPermanently, setIsDeletingPermanently] = useState(false);
+  const [restoringCardId, setRestoringCardId] = useState<string | null>(null);
+
+  const handleOpenArchivedCards = async () => {
+    setIsArchivedCardsOpen(true);
+    setIsLoadingArchived(true);
+    try {
+      const data = await api.getArchivedCards(board.id);
+      setArchivedCards(data);
+    } catch (err) {
+      console.error('Failed to load archived cards:', err);
+    } finally {
+      setIsLoadingArchived(false);
+    }
+  };
+
+  const handleRestoreCard = async (cardId: string) => {
+    if (!onRestoreCard) return;
+    setRestoringCardId(cardId);
+    const ok = await onRestoreCard(cardId);
+    setRestoringCardId(null);
+    if (ok) {
+      setArchivedCards((prev) => prev.filter((c) => c.id !== cardId));
+    }
+  };
+
+  const handleConfirmPermanentDelete = async () => {
+    if (!cardToDeletePermanently) return;
+    setIsDeletingPermanently(true);
+    const ok = await onDeleteCard(cardToDeletePermanently.id);
+    setIsDeletingPermanently(false);
+    if (ok) {
+      setArchivedCards((prev) => prev.filter((c) => c.id !== cardToDeletePermanently.id));
+      setCardToDeletePermanently(null);
+    }
+  };
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -411,6 +480,36 @@ export function BoardView({
             <Tag className="h-3.5 w-3.5" />
             <span>Labels ({board.labels?.length ?? 0})</span>
           </Button>
+
+          {/* Board menu dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground bg-card"
+                title="Board menu"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={handleOpenArchivedCards}
+                className="cursor-pointer text-xs"
+              >
+                <Archive className="mr-2 h-3.5 w-3.5" />
+                <span>Archived cards</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setIsBoardLabelsOpen(true)}
+                className="cursor-pointer text-xs"
+              >
+                <Tag className="mr-2 h-3.5 w-3.5" />
+                <span>Labels ({board.labels?.length ?? 0})</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -592,6 +691,7 @@ export function BoardView({
         onUpdateChecklistItem={onUpdateChecklistItem}
         onDeleteChecklistItem={onDeleteChecklistItem}
         onReorderChecklistItems={onReorderChecklistItems}
+        onArchiveCard={onArchiveCard}
       />
 
       {/* Board Labels Management Dialog */}
@@ -633,6 +733,147 @@ export function BoardView({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Archived Cards Dialog */}
+      <Dialog open={isArchivedCardsOpen} onOpenChange={setIsArchivedCardsOpen}>
+        <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-muted-foreground" />
+              <span>Archived cards</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-2">
+            {isLoadingArchived ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                Loading archived cards...
+              </div>
+            ) : archivedCards.length === 0 ? (
+              <div className="py-12 text-center space-y-2">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                  <Archive className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">No archived cards</p>
+                <p className="text-xs text-muted-foreground">
+                  Cards you archive from this board will appear here.
+                </p>
+              </div>
+            ) : (
+              archivedCards.map((card) => (
+                <div
+                  key={card.id}
+                  className="rounded-lg border border-border bg-card p-3 shadow-xs transition-colors hover:border-border/80"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <h4 className="text-sm font-medium text-foreground leading-snug break-words">
+                        {card.title}
+                      </h4>
+                      <p className="text-xs text-muted-foreground">
+                        List:{' '}
+                        <span className="font-medium text-foreground/80">
+                          {card.list?.title || 'Unknown list'}
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRestoreCard(card.id)}
+                        disabled={restoringCardId === card.id}
+                        className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10"
+                        title="Restore card to its list"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>{restoringCardId === card.id ? 'Restoring...' : 'Restore'}</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setCardToDeletePermanently(card)}
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        title="Permanently delete card"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Badges: Labels, Priority, Due Date */}
+                  {(card.labels?.length || card.priority || card.dueDate) ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/50">
+                      {card.labels?.map((label) => (
+                        <span
+                          key={label.id}
+                          style={{ backgroundColor: label.color }}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white tracking-wide shadow-xs"
+                        >
+                          {label.name}
+                        </span>
+                      ))}
+
+                      {card.priority && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border',
+                            card.priority === 'HIGH' &&
+                              'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900',
+                            card.priority === 'MEDIUM' &&
+                              'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900',
+                            card.priority === 'LOW' &&
+                              'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900'
+                          )}
+                        >
+                          <Flag className="h-2.5 w-2.5" />
+                          <span>{card.priority.charAt(0) + card.priority.slice(1).toLowerCase()}</span>
+                        </span>
+                      )}
+
+                      {card.dueDate && (
+                        <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border bg-muted text-muted-foreground border-border">
+                          <CalendarIcon className="h-2.5 w-2.5" />
+                          <span>Due: {format(new Date(card.dueDate), 'MMM d, yyyy')}</span>
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Delete Alert Dialog */}
+      <AlertDialog
+        open={!!cardToDeletePermanently}
+        onOpenChange={(open) => !isDeletingPermanently && !open && setCardToDeletePermanently(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete card?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{cardToDeletePermanently?.title}&rdquo; will be permanently deleted from PostgreSQL. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingPermanently}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmPermanentDelete();
+              }}
+              disabled={isDeletingPermanently}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingPermanently ? 'Deleting...' : 'Delete permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   ArrowUp,
   ArrowDown,
   GripVertical,
+  Archive,
 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import type { Card, ChecklistItem, Label, Priority } from '@/types';
@@ -78,6 +79,7 @@ interface CardDetailModalProps {
   onClose: () => void;
   onUpdateCard: (cardId: string, updates: Partial<Card>) => Promise<boolean>;
   onDeleteCard: (cardId: string) => Promise<boolean>;
+  onArchiveCard?: (cardId: string) => Promise<boolean>;
   // Labels
   onCreateLabel?: (name: string, color: string) => Promise<Label | null>;
   onUpdateLabel?: (labelId: string, name: string, color: string) => Promise<boolean>;
@@ -99,6 +101,7 @@ export function CardDetailModal({
   onClose,
   onUpdateCard,
   onDeleteCard,
+  onArchiveCard,
   onCreateLabel,
   onUpdateLabel,
   onDeleteLabel,
@@ -121,6 +124,7 @@ export function CardDetailModal({
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Labels Popover state
@@ -297,6 +301,16 @@ export function CardDetailModal({
     setIsDeleting(false);
     if (success) {
       setIsConfirmDeleteOpen(false);
+      onClose();
+    }
+  };
+
+  const handleArchiveCard = async () => {
+    if (!card || !onArchiveCard) return;
+    setIsArchiving(true);
+    const success = await onArchiveCard(card.id);
+    setIsArchiving(false);
+    if (success) {
       onClose();
     }
   };
@@ -1108,6 +1122,18 @@ export function CardDetailModal({
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Actions
                 </label>
+                {onArchiveCard && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleArchiveCard}
+                    disabled={isArchiving || isDeleting}
+                    className="w-full justify-start text-xs text-muted-foreground hover:text-foreground h-8"
+                  >
+                    <Archive className="mr-2 h-3.5 w-3.5" />
+                    {isArchiving ? 'Archiving...' : 'Archive card'}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"

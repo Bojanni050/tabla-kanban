@@ -69,6 +69,7 @@ export const api = {
       listId?: string;
       priority?: Priority | null;
       dueDate?: string | null;
+      archived?: boolean;
     }
   ) =>
     request<Card>(`/cards/${id}`, {
@@ -77,6 +78,12 @@ export const api = {
     }),
   deleteCard: (id: string) =>
     request<void>(`/cards/${id}`, { method: 'DELETE' }),
+  archiveCard: (id: string) =>
+    request<Card>(`/cards/${id}/archive`, { method: 'POST' }),
+  restoreCard: (id: string) =>
+    request<Card>(`/cards/${id}/restore`, { method: 'POST' }),
+  getArchivedCards: (boardId: string) =>
+    request<Card[]>(`/boards/${boardId}/archived`),
 
   // Labels
   createLabel: (data: { name: string; color: string; boardId: string }) =>

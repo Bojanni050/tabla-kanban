@@ -259,6 +259,80 @@ function App() {
     return handleUpdateCard(cardId, { title });
   };
 
+  const handleArchiveCard = async (cardId: string): Promise<boolean> => {
+    let archivedCard: Card | null = null;
+    let originalListId: string | null = null;
+
+    setBoard((prev) => {
+      if (!prev) return prev;
+      for (const list of prev.lists) {
+        const found = list.cards.find((c) => c.id === cardId);
+        if (found) {
+          archivedCard = found;
+          originalListId = list.id;
+          break;
+        }
+      }
+      return {
+        ...prev,
+        lists: prev.lists.map((list) => ({
+          ...list,
+          cards: list.cards.filter((c) => c.id !== cardId),
+        })),
+      };
+    });
+
+    try {
+      await api.archiveCard(cardId);
+      toast({ title: 'Card archived' });
+      return true;
+    } catch {
+      if (archivedCard && originalListId) {
+        setBoard((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((list) =>
+              list.id === originalListId
+                ? { ...list, cards: [...list.cards, archivedCard!] }
+                : list
+            ),
+          };
+        });
+      }
+      toast({
+        variant: 'destructive',
+        title: 'Failed to archive card',
+      });
+      return false;
+    }
+  };
+
+  const handleRestoreCard = async (cardId: string): Promise<boolean> => {
+    try {
+      const restored = await api.restoreCard(cardId);
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((list) =>
+            list.id === restored.listId
+              ? { ...list, cards: [...list.cards, restored] }
+              : list
+          ),
+        };
+      });
+      toast({ title: 'Card restored' });
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to restore card',
+      });
+      return false;
+    }
+  };
+
   // Label handlers
   const handleCreateLabel = async (name: string, color: string): Promise<Label | null> => {
     if (!board) return null;
@@ -867,6 +941,8 @@ function App() {
             onUpdateChecklistItem={handleUpdateChecklistItem}
             onDeleteChecklistItem={handleDeleteChecklistItem}
             onReorderChecklistItems={handleReorderChecklistItems}
+            onArchiveCard={handleArchiveCard}
+            onRestoreCard={handleRestoreCard}
           />
         ) : (
           <div className="flex h-full items-center justify-center">

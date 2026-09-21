@@ -79,7 +79,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PATCH /api/cards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
-  const { title, description, position, listId, priority, dueDate } = req.body;
+  const { title, description, position, listId, priority, dueDate, archived } = req.body;
 
   let validatedPriority: 'LOW' | 'MEDIUM' | 'HIGH' | null | undefined = undefined;
   if (priority !== undefined) {
@@ -120,6 +120,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(listId !== undefined && { listId }),
         ...(validatedPriority !== undefined && { priority: validatedPriority }),
         ...(validatedDueDate !== undefined && { dueDate: validatedDueDate }),
+        ...(archived !== undefined && { archived: Boolean(archived) }),
       },
       include: {
         labels: true,
@@ -135,6 +136,70 @@ router.patch('/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error updating card:', error);
     res.status(500).json({ error: 'Failed to update card' });
+  }
+});
+
+// POST /api/cards/:id/archive - archive a card
+router.post('/:id/archive', async (req: Request, res: Response) => {
+  try {
+    const card = await prisma.card.update({
+      where: { id: req.params.id },
+      data: { archived: true },
+      include: {
+        labels: true,
+        checklistItems: {
+          orderBy: { position: 'asc' },
+        },
+        list: {
+          select: { id: true, title: true, boardId: true },
+        },
+      },
+    });
+    res.json(card);
+  } catch (error) {
+    console.error('Error archiving card:', error);
+    res.status(500).json({ error: 'Failed to archive card' });
+  }
+});
+
+// POST /api/cards/:id/restore - restore an archived card to the end of its list
+router.post('/:id/restore', async (req: Request, res: Response) => {
+  try {
+    const existingCard = await prisma.card.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!existingCard) {
+      res.status(404).json({ error: 'Card not found' });
+      return;
+    }
+
+    // Find the last position among non-archived cards in this list
+    const lastCard = await prisma.card.findFirst({
+      where: { listId: existingCard.listId, archived: false },
+      orderBy: { position: 'desc' },
+    });
+    const nextPosition = lastCard ? lastCard.position + 1 : 0;
+
+    const restoredCard = await prisma.card.update({
+      where: { id: req.params.id },
+      data: {
+        archived: false,
+        position: nextPosition,
+      },
+      include: {
+        labels: true,
+        checklistItems: {
+          orderBy: { position: 'asc' },
+        },
+        list: {
+          select: { id: true, title: true, boardId: true },
+        },
+      },
+    });
+    res.json(restoredCard);
+  } catch (error) {
+    console.error('Error restoring card:', error);
+    res.status(500).json({ error: 'Failed to restore card' });
   }
 });
 
