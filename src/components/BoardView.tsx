@@ -24,6 +24,7 @@ import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
 import type { BoardWithDetails, Card, Label, Priority, BoardMember } from '@/types';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -131,6 +132,8 @@ interface BoardViewProps {
   remoteEventTick?: { n: number; event: BoardRealtimeEvent } | null;
   /** Create several lists at once (template flow). Sequential, order-preserving. */
   onCreateListsFromTemplate?: (boardId: string, titles: string[]) => Promise<boolean>;
+  /** Create the template's standard labels on the board (skips existing names). */
+  onCreateLabelsFromTemplate?: (boardId: string, names: string[]) => Promise<{ created: number; skipped: number } | null>;
 }
 
 function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
@@ -187,8 +190,10 @@ export function BoardView({
   connectionStatus = 'connected',
   remoteEventTick = null,
   onCreateListsFromTemplate,
+  onCreateLabelsFromTemplate,
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
+  const { toast } = useToast();
   const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiCard, setAiCard] = useState<{ id: string; title: string } | null>(null);
@@ -369,9 +374,22 @@ export function BoardView({
   const handleUseTemplate = async (template: ListTemplate) => {
     if (!onCreateListsFromTemplate) return;
     setIsCreatingTemplate(true);
-    const ok = await onCreateListsFromTemplate(board.id, template.lists);
+    const listsOk = await onCreateListsFromTemplate(board.id, template.lists);
+    let labels: { created: number; skipped: number } | null = null;
+    if (listsOk && onCreateLabelsFromTemplate) {
+      labels = await onCreateLabelsFromTemplate(board.id, template.labels);
+    }
     setIsCreatingTemplate(false);
-    if (ok) setIsTemplatePickerOpen(false);
+    if (!listsOk) return;
+    setIsTemplatePickerOpen(false);
+    const labelNote = !labels
+      ? ''
+      : labels.created === template.labels.length
+        ? ` and ${template.labels.length} labels`
+        : labels.created > 0
+          ? ` and ${labels.created} new labels`
+          : '';
+    toast({ title: `Template applied: ${template.lists.length} lists${labelNote} created.` });
   };
 
   const myRoleMeta = ROLE_META[board.myRole];

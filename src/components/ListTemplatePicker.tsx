@@ -36,7 +36,7 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
         <DialogHeader className="text-left">
           <DialogTitle>List templates</DialogTitle>
           <DialogDescription>
-            Start with a proven structure. All of the template&apos;s lists are added to this board at once — no cards are created.
+            Start with a proven structure. All of the template&apos;s lists and labels are added to this board at once — no cards are created.
           </DialogDescription>
         </DialogHeader>
 
@@ -84,6 +84,11 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
                     </span>
                   )}
                 </span>
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] font-semibold text-muted-foreground">
+                  <span>Lists: {template.lists.length}</span>
+                  <span aria-hidden>·</span>
+                  <span aria-label={`Labels: ${template.labels.join(', ')}`}>Labels: {template.labels.length}</span>
+                </span>
               </button>
             );
           })}
@@ -100,9 +105,9 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
           >
             {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
             {creating
-              ? 'Creating lists...'
+              ? 'Creating lists and labels...'
               : selected
-                ? `Use template · ${selected.lists.length} lists`
+                ? `Use template · ${selected.lists.length} lists · ${selected.labels.length} labels`
                 : 'Use template'}
           </Button>
         </DialogFooter>

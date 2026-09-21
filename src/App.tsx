@@ -13,6 +13,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useBoardRealtime } from '@/hooks/use-board-realtime';
 import { api } from '@/lib/api';
+import { TEMPLATE_LABEL_COLORS } from '@/lib/list-templates';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import type {
   BoardWithDetails,
@@ -328,6 +329,57 @@ function App() {
     }
     toast({ title: `${titles.length} lists created` });
     return true;
+  };
+
+  // Template flow: add the template's standard labels to the board through the
+  // existing labels API, skipping any name that already exists on the board.
+  // Existing labels are never modified. Returns how many labels were created,
+  // how many already existed, or null when nothing could be saved.
+  const handleCreateLabelsFromTemplate = async (
+    boardId: string,
+    names: string[]
+  ): Promise<{ created: number; skipped: number } | null> => {
+    if (names.length === 0) return { created: 0, skipped: 0 };
+    const existing = new Set(
+      (board?.id === boardId ? board.labels || [] : []).map((l) => l.name.trim().toLowerCase())
+    );
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const name of names) {
+      if (existing.has(name.trim().toLowerCase())) {
+        skipped++;
+        continue;
+      }
+      const color = TEMPLATE_LABEL_COLORS[name] || '#CE6F51';
+      try {
+        const newLabel = await api.createLabel({ name, color, boardId });
+        created++;
+        setBoard((prev) =>
+          prev && prev.id === boardId
+            ? { ...prev, labels: [...(prev.labels || []), newLabel] }
+            : prev
+        );
+      } catch {
+        failed++;
+      }
+    }
+    if (created === 0 && skipped === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not create labels',
+        description: 'The template labels could not be saved. Please try again.',
+      });
+      return null;
+    }
+    if (failed > 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not create all labels',
+        description: `${failed} of ${names.length} labels could not be saved. Please try again.`,
+      });
+    }
+    return { created, skipped };
   };
 
   const handleAddCard = async (title: string, listId: string) => {
@@ -1381,6 +1433,7 @@ function App() {
             board={board}
             onAddList={handleAddList}
             onCreateListsFromTemplate={handleCreateListsFromTemplate}
+            onCreateLabelsFromTemplate={handleCreateLabelsFromTemplate}
             onAddCard={handleAddCard}
             onDeleteList={handleDeleteList}
             onDeleteCard={handleDeleteCard}
