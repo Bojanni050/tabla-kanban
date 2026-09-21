@@ -200,6 +200,7 @@ export function BoardView({
   const [aiCard, setAiCard] = useState<{ id: string; title: string } | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
+  const [isTeamPanelOpen, setIsTeamPanelOpen] = useState(false);
   const [isAddingList, setIsAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
   const [isAddListMenuOpen, setIsAddListMenuOpen] = useState(false);
@@ -366,6 +367,20 @@ export function BoardView({
   }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter, assigneeFilter, assigneeFilterActive, isMyCardsFilter, currentUserId]);
 
   const totalCardsCount = useMemo(() => board.lists.reduce((acc, l) => acc + l.cards.length, 0), [board.lists]);
+  // Team overview: assigned card count per member, over live board state
+  const assigneeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const list of board.lists) {
+      for (const card of list.cards) {
+        if (card.assigneeId) counts.set(card.assigneeId, (counts.get(card.assigneeId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [board.lists]);
+  const unassignedCount = useMemo(
+    () => board.lists.reduce((acc, l) => acc + l.cards.filter((c) => !c.assigneeId).length, 0),
+    [board.lists]
+  );
   const filteredCardsCount = useMemo(() => filteredLists.reduce((acc, l) => acc + l.cards.length, 0), [filteredLists]);
 
   useEffect(() => {
@@ -624,6 +639,9 @@ export function BoardView({
               Share
             </Button>
 
+            <HeaderIconButton label={`Team (${memberPreview.length})`} onClick={() => setIsTeamPanelOpen(true)}>
+              <Users className="h-4 w-4" />
+            </HeaderIconButton>
             <HeaderIconButton label={`Board labels (${board.labels?.length ?? 0})`} onClick={() => setIsBoardLabelsOpen(true)}>
               <Tag className="h-4 w-4" />
             </HeaderIconButton>
@@ -930,6 +948,66 @@ export function BoardView({
         onLeft={onLeftBoard}
         onOwnershipTransferred={onOwnershipTransferred}
       />
+
+      <Dialog open={isTeamPanelOpen} onOpenChange={setIsTeamPanelOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Team</DialogTitle>
+            <DialogDescription>
+              Assigned cards per board member. Click a member to filter the board by their cards.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 py-1">
+            {[...memberPreview]
+              .sort((a, b) => (assigneeCounts.get(b.userId) ?? 0) - (assigneeCounts.get(a.userId) ?? 0) || displayName(a).localeCompare(displayName(b)))
+              .map((member) => (
+              <button
+                key={member.userId}
+                type="button"
+                onClick={() => {
+                  setAssigneeFilter(member.userId);
+                  setIsTeamPanelOpen(false);
+                }}
+                className="flex w-full items-center justify-between rounded-lg border bg-white p-2 pl-2.5 text-left transition-colors hover:bg-muted/50"
+                style={{ borderColor: 'var(--kala-line)' }}
+                aria-label={`Filter by ${displayName(member)}, ${assigneeCounts.get(member.userId) ?? 0} assigned cards`}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <MemberAvatar person={member} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium text-foreground">{displayName(member)}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{member.email}</span>
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground">
+                  {assigneeCounts.get(member.userId) ?? 0} cards
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setAssigneeFilter('unassigned');
+                setIsTeamPanelOpen(false);
+              }}
+              className="flex w-full items-center justify-between rounded-lg border bg-white p-2 pl-2.5 text-left transition-colors hover:bg-muted/50"
+              style={{ borderColor: 'var(--kala-line)' }}
+              aria-label={`Filter by unassigned, ${unassignedCount} cards`}
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground" aria-hidden>—</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-foreground">Unassigned</span>
+                  <span className="block text-[11px] text-muted-foreground">Cards without an assignee</span>
+                </span>
+              </span>
+              <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-foreground">
+                {unassignedCount} cards
+              </span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isBoardLabelsOpen} onOpenChange={setIsBoardLabelsOpen}>
         <DialogContent className="max-w-md">
