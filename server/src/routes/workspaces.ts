@@ -3,9 +3,10 @@ import prisma from '../db.js';
 
 const router = Router();
 
-// GET /api/workspaces - list all workspaces with their boards
-router.get('/', async (_req: Request, res: Response) => {
+// GET /api/workspaces - list workspaces for the authenticated user
+router.get('/', async (req: Request, res: Response) => {
   const workspaces = await prisma.workspace.findMany({
+    where: { userId: req.userId },
     include: {
       boards: {
         orderBy: { createdAt: 'asc' },
@@ -22,7 +23,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     where: { id: req.params.id },
     include: { boards: true },
   });
-  if (!workspace) {
+  if (!workspace || workspace.userId !== req.userId) {
     res.status(404).json({ error: 'Workspace not found' });
     return;
   }
@@ -31,13 +32,13 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // POST /api/workspaces
 router.post('/', async (req: Request, res: Response) => {
-  const { name, userId } = req.body;
-  if (!name || !userId) {
-    res.status(400).json({ error: 'name and userId are required' });
+  const { name } = req.body;
+  if (!name) {
+    res.status(400).json({ error: 'name is required' });
     return;
   }
   const workspace = await prisma.workspace.create({
-    data: { name, userId },
+    data: { name, userId: req.userId! },
   });
   res.status(201).json(workspace);
 });

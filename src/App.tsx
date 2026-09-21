@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { BoardView } from '@/components/BoardView';
+import { AuthPage } from '@/components/AuthPage';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import { DEMO_BOARD, DEMO_WORKSPACES } from '@/lib/demo-data';
-import type { BoardWithDetails, Card, ChecklistItem, Label, List, Workspace } from '@/types';
+import type { BoardWithDetails, Card, ChecklistItem, Label, List, User, Workspace } from '@/types';
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardWithDetails | null>(null);
@@ -17,26 +19,42 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { toast } = useToast();
 
+  // Check current auth status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const currentUser = await api.getCurrentUser();
+        setUser(currentUser);
+      } catch {
+        setUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
   // Load workspaces
   const loadWorkspaces = useCallback(async () => {
     try {
+      setLoading(true);
       const data = await api.getWorkspaces();
       if (data.length > 0) {
         setWorkspaces(data);
         const firstBoard = data[0]?.boards?.[0];
         if (firstBoard) {
           setActiveBoardId(firstBoard.id);
+        } else {
+          setActiveBoardId(null);
+          setBoard(null);
         }
       } else {
-        // No data in DB, use demo data
-        setWorkspaces(DEMO_WORKSPACES);
-        setActiveBoardId(DEMO_BOARD.id);
+        setWorkspaces([]);
+        setActiveBoardId(null);
+        setBoard(null);
       }
     } catch {
-      // API not available, use demo data
       setError(true);
-      setWorkspaces(DEMO_WORKSPACES);
-      setActiveBoardId(DEMO_BOARD.id);
     } finally {
       setLoading(false);
     }
@@ -44,10 +62,6 @@ function App() {
 
   // Load board details
   const loadBoard = useCallback(async (boardId: string) => {
-    if (boardId === DEMO_BOARD.id) {
-      setBoard(DEMO_BOARD);
-      return;
-    }
     try {
       const data = await api.getBoard(boardId);
       setBoard(data);
@@ -57,8 +71,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadWorkspaces();
-  }, [loadWorkspaces]);
+    if (user) {
+      loadWorkspaces();
+    } else {
+      setWorkspaces([]);
+      setActiveBoardId(null);
+      setBoard(null);
+      setLoading(false);
+    }
+  }, [user, loadWorkspaces]);
 
   useEffect(() => {
     if (activeBoardId) {
@@ -762,10 +783,6 @@ function App() {
       };
     });
 
-    if (board.id === DEMO_BOARD.id) {
-      return;
-    }
-
     try {
       if (needsReindex) {
         await Promise.all(
@@ -851,8 +868,6 @@ function App() {
       };
     });
 
-    if (board.id === DEMO_BOARD.id) return;
-
     try {
       await api.updateCard(cardId, { listId: toListId, position: newPosition });
       if (needsReindex) {
@@ -900,7 +915,38 @@ function App() {
     }
   };
 
-  if (loading) {
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // Continue cleanup even if server request fails
+    } finally {
+      setUser(null);
+      setWorkspaces([]);
+      setActiveBoardId(null);
+      setBoard(null);
+      toast({ title: 'Logged out successfully' });
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <AuthPage onSuccess={(authenticatedUser) => setUser(authenticatedUser)} />
+        <Toaster />
+      </>
+    );
+  }
+
+  if (loading && workspaces.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -917,6 +963,8 @@ function App() {
         onCreateBoard={handleCreateBoard}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+        user={user}
+        onLogout={handleLogout}
       />
       <main className="flex-1 overflow-hidden">
         {board ? (
@@ -948,8 +996,8 @@ function App() {
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted-foreground">
               {error
-                ? 'Could not connect to the server. Showing demo data.'
-                : 'Select a board to get started.'}
+                ? 'Could not connect to the server. Please check your connection.'
+                : 'Select a board to get started, or create one in the sidebar.'}
             </p>
           </div>
         )}

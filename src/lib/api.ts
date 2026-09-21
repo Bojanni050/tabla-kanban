@@ -1,21 +1,40 @@
-import type { Board, BoardWithDetails, Card, ChecklistItem, Label, List, Priority, Workspace } from '@/types';
+import type { Board, BoardWithDetails, Card, ChecklistItem, Label, List, Priority, User, Workspace } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`API error ${res.status}: ${text}`);
+    const data = await res.json().catch(() => null);
+    const errorMsg = data?.error || (await res.text().catch(() => '')) || `API error ${res.status}`;
+    throw new Error(errorMsg);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 export const api = {
+  // Auth
+  register: (data: { email: string; password: string }) =>
+    request<User>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  login: (data: { email: string; password: string }) =>
+    request<User>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  logout: () =>
+    request<{ message: string }>('/auth/logout', {
+      method: 'POST',
+    }),
+  getCurrentUser: () => request<User>('/auth/me'),
+
   // Workspaces
   getWorkspaces: () => request<Workspace[]>('/workspaces'),
 

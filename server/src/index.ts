@@ -1,29 +1,51 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import session from 'express-session';
+import authRoutes from './routes/auth.js';
 import boardRoutes from './routes/boards.js';
 import listRoutes from './routes/lists.js';
 import cardRoutes from './routes/cards.js';
 import workspaceRoutes from './routes/workspaces.js';
 import labelRoutes from './routes/labels.js';
 import checklistRoutes from './routes/checklist.js';
+import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json());
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'tabla-dev-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: false, // set to true in production with HTTPS
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  },
+}));
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/boards', boardRoutes);
-app.use('/api/lists', listRoutes);
-app.use('/api/cards', cardRoutes);
-app.use('/api/labels', labelRoutes);
-app.use('/api/checklist', checklistRoutes);
+// Auth routes (unprotected)
+app.use('/api/auth', authRoutes);
+
+// Protected routes
+app.use('/api/workspaces', requireAuth, workspaceRoutes);
+app.use('/api/boards', requireAuth, boardRoutes);
+app.use('/api/lists', requireAuth, listRoutes);
+app.use('/api/cards', requireAuth, cardRoutes);
+app.use('/api/labels', requireAuth, labelRoutes);
+app.use('/api/checklist', requireAuth, checklistRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

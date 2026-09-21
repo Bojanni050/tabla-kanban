@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { LayoutDashboard, Plus, ChevronDown, ChevronRight, Settings2 } from 'lucide-react';
+import { LayoutDashboard, Plus, ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Workspace, Board } from '@/types';
+import type { Workspace, Board, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -12,6 +12,8 @@ interface SidebarProps {
   onCreateBoard: (name: string, workspaceId: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  user?: User | null;
+  onLogout?: () => void;
 }
 
 export function Sidebar({
@@ -21,6 +23,8 @@ export function Sidebar({
   onCreateBoard,
   collapsed,
   onToggleCollapse,
+  user,
+  onLogout,
 }: SidebarProps) {
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(workspaces.map((w) => w.id))
@@ -50,10 +54,21 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-14 flex-col items-center border-r border-border bg-card py-4">
+      <div className="flex h-full w-14 flex-col items-center justify-between border-r border-border bg-card py-4">
         <Button variant="ghost" size="icon" onClick={onToggleCollapse} title="Expand sidebar">
           <LayoutDashboard className="h-5 w-5" />
         </Button>
+        {user && onLogout && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onLogout}
+            title={`Log out (${user.email})`}
+            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     );
   }
@@ -152,13 +167,32 @@ export function Sidebar({
         })}
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-border px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Settings2 className="h-3.5 w-3.5" />
-          <span>Settings</span>
+      {/* Footer / User Info */}
+      {user && (
+        <div className="border-t border-border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
+                {user.email ? user.email[0].toUpperCase() : 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-foreground">{user.email}</p>
+              </div>
+            </div>
+            {onLogout && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                onClick={onLogout}
+                title="Log out"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
