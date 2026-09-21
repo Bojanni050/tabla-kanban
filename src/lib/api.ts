@@ -6,6 +6,7 @@ import type {
   BoardRole,
   BoardWithDetails,
   Card,
+  CardAiAction,
   ChecklistItem,
   Label,
   List,
@@ -121,6 +122,22 @@ export const api = {
     request<void>(`/invitations/${encodeURIComponent(token)}/decline`, {
       method: 'POST',
       body: '{}',
+    }),
+
+  // Kala AI (read-only assistant; the backend talks to the AI provider, never the browser)
+  getAiStatus: () => request<{ enabled: boolean }>('/ai/status'),
+  askKalaAi: (
+    boardId: string,
+    data: {
+      messages: { role: 'user' | 'assistant'; content: string }[];
+      cardId?: string;
+      action?: CardAiAction;
+      today: string;
+    }
+  ) =>
+    request<{ reply: string }>(`/ai/boards/${boardId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   // Lists

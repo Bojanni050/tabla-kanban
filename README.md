@@ -282,6 +282,35 @@ Plesk's own backups do **not** include Docker volumes. Schedule the PostgreSQL b
 
 ---
 
+## Kala AI
+
+Kala AI is a **read-only** assistant in the board header ("Kala AI") and in every card ("Ask Kala AI"). It answers questions about the board you have open — summaries, overdue and high-priority work, what to focus on this week, cards that appear blocked or have no deadline, recent activity — and makes suggestions for a card (improve the description, suggest a checklist, priority or deadline, point out missing information). It never changes anything: answers are text you can read or copy, and there is no way for it to create, edit, move or delete data.
+
+**It is off until you configure it.** Without `AI_API_KEY` the panel says Kala AI isn't set up, and the rest of Kala works as usual.
+
+| Variable | Description |
+|----------|-------------|
+| `AI_API_KEY` | The provider's API key. Required to switch Kala AI on. Server-side only. |
+| `AI_PROVIDER` | `anthropic` (default) or `openai`. |
+| `AI_MODEL` | Model id. Defaults to `claude-opus-5` (`gpt-5` for openai). `claude-sonnet-5` is a cheaper, faster option. |
+| `AI_BASE_URL` | Optional. Override the provider URL (an API proxy or an OpenAI-compatible server). |
+| `AI_EFFORT` | Optional (anthropic). `low`, `medium`, `high`, `xhigh` or `max`. Only for models that support it; leave empty otherwise. |
+| `AI_MAX_REQUESTS_PER_HOUR` | Optional. Per-user limit (default 60). |
+
+Set them in `.env` (Docker) or `server/.env` (development); `docker-compose.yml` passes them to the backend, then run `docker compose up -d`. The start-up log states whether Kala AI is enabled and with which provider and model (never the key).
+
+**How it works.** Browser → Kala backend (`POST /api/ai/boards/:boardId/chat`) → Kala AI service → provider. The browser never talks to the provider and never sees the key. Every request checks that you are signed in and a member of the board (viewers may ask questions; they can already see everything the AI sees); a card is only accepted if it belongs to that board. For each request the backend reads a fresh snapshot of that one board — name, workspace, you and your role, lists, cards with descriptions, priorities, due dates, labels and checklist progress, and recent activity — and sends it with your question. The model has no database access and no tools.
+
+**Things to know**
+
+- **Privacy:** when someone uses Kala AI, that board's content is sent to the AI provider you configured. Use a provider and plan whose data terms you are comfortable with.
+- **Recent activity** is derived from timestamps (created, edited/moved, archived, checklist changes). Kala does not record who changed what, so Kala AI can't say that either.
+- **Finished work:** lists named like *Done*, *Completed* or *Afgerond* are treated as finished, so their cards are not reported as open or overdue.
+- Large boards: the first 150 open cards are listed in full; totals always cover every card. Conversations are not stored — closing the browser tab forgets them.
+- Kala AI can make mistakes, especially on vague cards. It is told to say when the board doesn't contain enough information rather than guess.
+
+---
+
 ## Local development
 
 Development uses the Vite dev server and `tsx watch` on your machine; only PostgreSQL runs in Docker. (The production stack above is **not** used for development.)

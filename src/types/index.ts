@@ -78,6 +78,15 @@ export interface BoardWithDetails extends Board {
 
 export type BoardRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 
+// Suggestion-only Kala AI requests about a single card
+export type CardAiAction =
+  | 'improve_description'
+  | 'summarize_card'
+  | 'suggest_checklist'
+  | 'missing_info'
+  | 'suggest_priority'
+  | 'suggest_deadline';
+
 // Roles that can be handed out through invitations or role changes
 export type AssignableRole = Exclude<BoardRole, 'OWNER'>;
 

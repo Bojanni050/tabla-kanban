@@ -52,6 +52,13 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       CORS_ORIGIN: ${KALA_PUBLIC_URL:-http://localhost:8080}
+      # Kala AI (optional): off unless AI_API_KEY is set. Read only by the backend.
+      AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_EFFORT: ${AI_EFFORT:-}
+      AI_MAX_REQUESTS_PER_HOUR: ${AI_MAX_REQUESTS_PER_HOUR:-60}
     depends_on:
       postgres:
         condition: service_healthy # wait until PostgreSQL accepts connections

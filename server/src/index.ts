@@ -12,6 +12,8 @@ import workspaceRoutes from './routes/workspaces.js';
 import labelRoutes from './routes/labels.js';
 import checklistRoutes from './routes/checklist.js';
 import realtimeRoutes from './routes/realtime.js';
+import aiRoutes from './routes/ai.js';
+import { describeAiConfig } from './ai/config.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
@@ -67,6 +69,7 @@ app.use('/api/cards', requireAuth, cardRoutes);
 app.use('/api/labels', requireAuth, labelRoutes);
 app.use('/api/checklist', requireAuth, checklistRoutes);
 app.use('/api/realtime', requireAuth, realtimeRoutes);
+app.use('/api/ai', requireAuth, aiRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -79,6 +82,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(describeAiConfig());
 });
 
 export default app;

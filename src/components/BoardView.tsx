@@ -17,6 +17,7 @@ import {
   Users,
   LayoutGrid,
   SearchX,
+  Sparkles,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
 import type { BoardWithDetails, Card, Label, Priority, BoardMember } from '@/types';
@@ -50,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { ListView } from './ListView';
 import { CardDetailModal } from './CardDetailModal';
 import { MembersDialog } from './MembersDialog';
+import { AiPanel } from './AiPanel';
 import { EmptyState } from './EmptyState';
 import { AvatarStack } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
@@ -182,6 +184,8 @@ export function BoardView({
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiCard, setAiCard] = useState<{ id: string; title: string } | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
   const [isAddingList, setIsAddingList] = useState(false);
@@ -498,6 +502,16 @@ export function BoardView({
                 <AvatarStack people={memberPreview} max={4} />
               </button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAiOpen((open) => !open)}
+              aria-pressed={aiOpen}
+              className={cn('h-8 gap-1.5 bg-white px-3 text-[13px]', aiOpen && 'bg-[#F6E4DC] hover:bg-[#F6E4DC]')}
+            >
+              <Sparkles className="h-3.5 w-3.5" style={{ color: 'var(--kala-coral-strong)' }} aria-hidden />
+              Kala AI
+            </Button>
             <Button size="sm" onClick={() => setIsMembersOpen(true)} className="h-8 gap-1.5 bg-[#2A2F36] px-3 text-[13px] text-white hover:bg-[#1E2329]">
               <Users className="h-3.5 w-3.5" aria-hidden />
               Share
@@ -580,8 +594,9 @@ export function BoardView({
         )}
       </header>
 
-      {/* ── Board canvas ───────────────────────────────── */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden" role="region" aria-label={`Cards for board ${board.name}`}>
+      {/* ── Board canvas + Kala AI panel ───────────────── */}
+      <div className="flex min-h-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden" role="region" aria-label={`Cards for board ${board.name}`}>
         {board.lists.length === 0 && !isFiltered ? (
           <div className="flex h-full items-center justify-center p-8">
             <div className="kala-card w-full max-w-md p-2">
@@ -683,6 +698,18 @@ export function BoardView({
         )}
       </div>
 
+      {/* key: a different board starts a fresh conversation */}
+      <AiPanel
+        key={board.id}
+        open={aiOpen}
+        boardId={board.id}
+        boardName={board.name}
+        card={aiCard}
+        onClearCard={() => setAiCard(null)}
+        onClose={() => setAiOpen(false)}
+      />
+      </div>
+
       <CardDetailModal
         card={selectedCard}
         listTitle={selectedList?.title}
@@ -706,6 +733,11 @@ export function BoardView({
         onReorderChecklistItems={onReorderChecklistItems}
         onArchiveCard={onArchiveCard}
         readOnly={!canEdit}
+        onAskAi={(c) => {
+          setSelectedCardId(null);
+          setAiCard({ id: c.id, title: c.title });
+          setAiOpen(true);
+        }}
       />
 
       <MembersDialog

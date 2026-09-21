@@ -18,6 +18,7 @@ import {
   ArrowDown,
   Archive,
   History,
+  Sparkles,
 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import type { Card, Label, Priority } from '@/types';
@@ -91,6 +92,8 @@ interface CardDetailModalProps {
   onDeleteChecklistItem: (cardId: string, itemId: string) => Promise<boolean>;
   onReorderChecklistItems: (cardId: string, itemIds: string[]) => Promise<boolean>;
   readOnly?: boolean;
+  // Opens the Kala AI panel about this card (suggestions only; also available to viewers)
+  onAskAi?: (card: Card) => void;
 }
 
 function SectionTitle({ icon: Icon, children, action }: { icon: typeof Tag; children: React.ReactNode; action?: React.ReactNode }) {
@@ -124,6 +127,7 @@ export function CardDetailModal({
   onDeleteChecklistItem,
   onReorderChecklistItems,
   readOnly = false,
+  onAskAi,
 }: CardDetailModalProps) {
   const [title, setTitle] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -733,6 +737,31 @@ export function CardDetailModal({
                     )}
                   </div>
                 </section>
+
+                {/* Kala AI - read-only suggestions. Rendered as a span with role="button" so that it
+                    keeps working for viewers, where the surrounding fieldset disables real buttons. */}
+                {onAskAi && (
+                  <section className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--kala-line)' }} aria-label="Kala AI">
+                    <h3 className="kala-section-label flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" aria-hidden />Kala AI</h3>
+                    <Button asChild variant="outline" size="sm" className="h-8 w-full cursor-pointer justify-start bg-white text-xs text-foreground">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onAskAi(card)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onAskAi(card);
+                          }
+                        }}
+                      >
+                        <Sparkles className="mr-2 h-3.5 w-3.5" style={{ color: 'var(--kala-coral-strong)' }} aria-hidden />
+                        Ask Kala AI
+                      </span>
+                    </Button>
+                    <p className="px-1 text-[11px] leading-snug text-muted-foreground">Suggestions only. Kala AI never changes your card.</p>
+                  </section>
+                )}
 
                 {/* 7 — Actions, destructive separated */}
                 <section className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--kala-line)' }} aria-label="Card actions">
