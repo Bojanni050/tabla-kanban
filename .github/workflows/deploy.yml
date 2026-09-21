@@ -71,11 +71,24 @@ jobs:
             git fetch origin
             git reset --hard origin/main
 
-            # Rebuild and restart. --wait blocks until every service is healthy and fails the
-            # deployment if one is not (postgres -> backend, which runs `prisma migrate deploy`
-            # on start -> frontend). The database volume is never touched.
+            # 1. Build the new images (the running containers are not touched yet).
+            docker compose build
+
+            # 2. Apply pending database migrations with the NEW image BEFORE the new backend
+            #    starts. If a migration fails, the deploy stops here and the old version keeps
+            #    running. Migrations must stay backwards compatible (additive) so the old
+            #    backend still works against the migrated schema during the switch.
+            docker compose up -d --wait --wait-timeout 120 postgres
+            if ! docker compose run --rm --no-deps backend ./node_modules/.bin/prisma migrate deploy; then
+              echo "ERROR: database migration failed - the running version was left untouched."
+              exit 1
+            fi
+
+            # 3. Start the new version. --wait blocks until every service is healthy and fails
+            #    the deployment if one is not. The database volume is never touched. (The
+            #    backend also runs `prisma migrate deploy` on start; that is a no-op now.)
             # On failure, print the service state and logs so the cause shows up in this run.
-            if ! docker compose up -d --build --wait --wait-timeout 300; then
+            if ! docker compose up -d --wait --wait-timeout 300; then
               echo "::group::docker compose ps"
               docker compose ps -a || true
               echo "::endgroup::"
