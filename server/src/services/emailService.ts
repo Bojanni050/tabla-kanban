@@ -16,7 +16,22 @@ export const EMAIL_FROM =
   process.env.EMAIL_FROM || 'Kala <noreply@kala.studiovanderheide.nl>';
 const APP_URL = (process.env.APP_URL || 'https://kala.studiovanderheide.nl').replace(/\/+$/, '');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// The client is created lazily on first use, so a missing RESEND_API_KEY logs a
+// clear warning instead of crashing the whole backend at startup. isEmailConfigured()
+// still reports the true state and callers decide how to handle it.
+let cachedClient: Resend | null = null;
+function getClient(): Resend {
+  if (!cachedClient) cachedClient = new Resend(process.env.RESEND_API_KEY);
+  return cachedClient;
+}
+
+// Warn once at startup when email is not configured, without failing the boot.
+const emailConfigured = Boolean(process.env.RESEND_API_KEY);
+if (!emailConfigured) {
+  console.warn(
+    'Email is not configured (RESEND_API_KEY is not set). Board invitation emails will not be sent.'
+  );
+}
 
 export class EmailSendError extends Error {
   constructor(message: string) {
@@ -112,7 +127,7 @@ async function send(options: {
     throw new EmailSendError('Email is not configured (RESEND_API_KEY is not set)');
   }
   try {
-    const { data, error } = await resend.emails.send(
+    const { data, error } = await getClient().emails.send(
       {
         from: EMAIL_FROM,
         to: options.to,
