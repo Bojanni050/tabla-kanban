@@ -638,7 +638,7 @@ export function BoardView({
               <EmptyState
                 icon={<LayoutGrid className="h-5 w-5" />}
                 title={canEdit ? 'This board is empty' : 'No lists on this board'}
-                description={canEdit ? 'Add your first list to start organizing cards. Typical flow: To do, In progress, Done.' : 'There are no lists to show yet.'}
+                description={canEdit ? 'Add your first list or start from a proven template with lists and labels. Typical flow: To do, In progress, Done.' : 'There are no lists to show yet.'}
                 action={canEdit ? (
                   isAddingList ? (
                     <div className="flex w-72 items-center gap-2">
@@ -646,6 +646,15 @@ export function BoardView({
                         onKeyDown={(e) => { if (e.key === 'Enter') handleAddList(); if (e.key === 'Escape') { setIsAddingList(false); setNewListTitle(''); } }}
                         placeholder="Enter list title..." aria-label="New list title" className="h-9 bg-white text-sm" />
                       <Button size="sm" onClick={handleAddList} className="h-9 bg-[#2A2F36] text-white hover:bg-[#1E2329]">Add</Button>
+                    </div>
+                  ) : onCreateListsFromTemplate ? (
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
+                        <Plus className="h-4 w-4" aria-hidden /> Add your first list
+                      </Button>
+                      <Button variant="outline" onClick={() => setIsTemplatePickerOpen(true)} className="gap-1.5 bg-white">
+                        <LayoutTemplate className="h-4 w-4" aria-hidden /> Use a template
+                      </Button>
                     </div>
                   ) : (
                     <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
