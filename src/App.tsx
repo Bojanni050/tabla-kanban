@@ -18,6 +18,7 @@ import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import type {
   BoardWithDetails,
   Card,
+  Swimlane,
   ChecklistItem,
   Label,
   List,
@@ -226,6 +227,35 @@ function App() {
                 ...c,
                 labels: (c.labels || []).filter((l) => l.id !== labelId),
               })),
+            })),
+          };
+        }
+        case 'swimlane.created': {
+          const swimlane = event.data as Swimlane;
+          if ((prev.swimlanes || []).some((sl) => sl.id === swimlane.id)) return prev;
+          return { ...prev, swimlanes: [...(prev.swimlanes || []), swimlane] };
+        }
+        case 'swimlane.updated': {
+          const swimlane = event.data as Swimlane;
+          return {
+            ...prev,
+            swimlanes: (prev.swimlanes || [])
+              .filter((sl) => sl.id !== swimlane.id)
+              .concat(swimlane)
+              .sort((a, b) => a.position - b.position),
+          };
+        }
+        case 'swimlane.deleted': {
+          const { swimlaneId } = event.data as { swimlaneId: string };
+          return {
+            ...prev,
+            swimlanes: (prev.swimlanes || []).filter((sl) => sl.id !== swimlaneId),
+            // Cards in a deleted swimlane fall back to "Unassigned" (swimlaneId = NULL in the DB).
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) =>
+                c.swimlaneId === swimlaneId ? { ...c, swimlaneId: null, swimlane: null } : c
+              ),
             })),
           };
         }
@@ -991,6 +1021,99 @@ function App() {
   };
 
   // Reorder cards within a single list and persist position in PostgreSQL
+  // --- Swimlanes --------------------------------------------------------------
+  const handleAddSwimlane = async (name: string): Promise<boolean> => {
+    if (!board) return false;
+    try {
+      const swimlane = await api.createSwimlane({ name, boardId: board.id });
+      setBoard((prev) => (prev ? { ...prev, swimlanes: [...(prev.swimlanes || []), swimlane] } : prev));
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not add swimlane',
+        description: 'The swimlane could not be created. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  const handleRenameSwimlane = async (swimlaneId: string, name: string): Promise<boolean> => {
+    try {
+      const updated = await api.updateSwimlane(swimlaneId, { name });
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              swimlanes: (prev.swimlanes || []).map((sl) => (sl.id === swimlaneId ? updated : sl)),
+              lists: prev.lists.map((list) => ({
+                ...list,
+                cards: list.cards.map((c) => (c.swimlaneId === swimlaneId ? { ...c, swimlane: { ...c.swimlane!, name: updated.name } } : c)),
+              })),
+            }
+          : prev
+      );
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not rename swimlane',
+        description: 'The swimlane could not be renamed. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  const handleDeleteSwimlane = async (swimlaneId: string): Promise<boolean> => {
+    try {
+      await api.deleteSwimlane(swimlaneId);
+      setBoard((prev) =>
+        prev
+          ? {
+              ...prev,
+              swimlanes: (prev.swimlanes || []).filter((sl) => sl.id !== swimlaneId),
+              lists: prev.lists.map((list) => ({
+                ...list,
+                cards: list.cards.map((c) => (c.swimlaneId === swimlaneId ? { ...c, swimlaneId: null, swimlane: null } : c)),
+              })),
+            }
+          : prev
+      );
+      return true;
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Could not delete swimlane',
+        description: 'The swimlane could not be deleted. Please try again.',
+      });
+      return false;
+    }
+  };
+
+  // Reorder swimlanes by persisting the full new order as positions 0..n
+  const handleReorderSwimlanes = async (orderedIds: string[]): Promise<void> => {
+    if (!board) return;
+    const previous = board.swimlanes || [];
+    const reordered = orderedIds
+      .map((id, i) => ({ ...previous.find((sl) => sl.id === id)!, position: i }))
+      .filter((sl) => sl.id);
+    setBoard((prev) =>
+      prev
+        ? { ...prev, swimlanes: (prev.swimlanes || []).map((sl) => reordered.find((r) => r.id === sl.id) ?? sl).sort((a, b) => a.position - b.position) }
+        : prev
+    );
+    try {
+      await Promise.all(reordered.map((sl, i) => api.updateSwimlane(sl.id, { position: i })));
+    } catch {
+      setBoard((prev) => (prev ? { ...prev, swimlanes: previous } : prev));
+      toast({
+        variant: 'destructive',
+        title: 'Could not reorder swimlanes',
+        description: 'The new swimlane order could not be saved. Please try again.',
+      });
+    }
+  };
+
   const handleReorderCard = async (listId: string, cardId: string, toIndex: number) => {
     if (!board) return;
 
@@ -1151,6 +1274,130 @@ function App() {
         variant: 'destructive',
         title: 'Failed to move card',
         description: 'The card could not be moved. Please try again.',
+      });
+    }
+  };
+
+  // Move a card to a (list, swimlane) cell in the swimlane view and persist
+  // listId + swimlaneId + position. Position is computed within the target cell.
+  const handleMoveCardToCell = async ({
+    cardId,
+    toListId,
+    toSwimlaneId,
+    toIndex,
+  }: { cardId: string; toListId: string; toSwimlaneId: string | null; toIndex: number }) => {
+    if (!board) return;
+    let moving: Card | null = null;
+    for (const list of board.lists) {
+      const found = list.cards.find((c) => c.id === cardId);
+      if (found) { moving = found; break; }
+    }
+    if (!moving) return;
+    const sameCell = moving.listId === toListId && (moving.swimlaneId ?? null) === toSwimlaneId;
+    const cellCards = board.lists
+      .find((l) => l.id === toListId)
+      ?.cards.filter((c) => (c.swimlaneId ?? null) === toSwimlaneId) ?? [];
+    if (sameCell) {
+      // Reuse the existing reorder logic within the cell.
+      const fromIndex = cellCards.findIndex((c) => c.id === cardId);
+      if (fromIndex === -1) return;
+      const targetIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+      if (targetIndex !== fromIndex) await handleReorderCardInCell(toListId, toSwimlaneId, cardId, targetIndex);
+      return;
+    }
+    const others = cellCards.filter((c) => c.id !== cardId);
+    const index = Math.max(0, Math.min(toIndex, others.length));
+    let newPosition: number;
+    let needsReindex = false;
+    if (others.length === 0) {
+      newPosition = 0;
+    } else if (index === 0) {
+      newPosition = others[0].position - 1;
+    } else if (index === others.length) {
+      newPosition = others[others.length - 1].position + 1;
+    } else {
+      const prevPos = others[index - 1].position;
+      const nextPos = others[index].position;
+      if (prevPos >= nextPos || nextPos - prevPos < 1e-6) {
+        needsReindex = true;
+        newPosition = index;
+      } else {
+        newPosition = (prevPos + nextPos) / 2;
+      }
+    }
+    const movedCard: Card = { ...moving, listId: toListId, swimlaneId: toSwimlaneId, position: newPosition, swimlane: null };
+    const previousLists = board.lists;
+    setBoard((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lists: prev.lists.map((l) => {
+          if (l.id === toListId) {
+            return { ...l, cards: [...l.cards.filter((c) => c.id !== cardId), movedCard].sort((a, b) => a.position - b.position) };
+          }
+          return { ...l, cards: l.cards.filter((c) => c.id !== cardId) };
+        }),
+      };
+    });
+    try {
+      await api.updateCard(cardId, { listId: toListId, swimlaneId: toSwimlaneId, position: newPosition });
+      if (needsReindex) {
+        await Promise.all(
+          others.map((c, i) => api.updateCard(c.id, { position: i }))
+        );
+      }
+    } catch {
+      setBoard((prev) => (prev ? { ...prev, lists: previousLists } : prev));
+      toast({
+        variant: 'destructive',
+        title: 'Failed to move card',
+        description: 'The card could not be moved. Please try again.',
+      });
+    }
+  };
+
+  // Reorder a card within its (list, swimlane) cell.
+  const handleReorderCardInCell = async (
+    listId: string,
+    swimlaneId: string | null,
+    cardId: string,
+    targetIndex: number
+  ) => {
+    if (!board) return;
+    const list = board.lists.find((l) => l.id === listId);
+    if (!list) return;
+    const cellCards = list.cards.filter((c) => (c.swimlaneId ?? null) === swimlaneId);
+    const fromIndex = cellCards.findIndex((c) => c.id === cardId);
+    if (fromIndex === -1) return;
+    const cards = [...cellCards];
+    const [moved] = cards.splice(fromIndex, 1);
+    cards.splice(targetIndex, 0, moved);
+    let newPosition: number;
+    if (cards.length <= 1) {
+      newPosition = 0;
+    } else if (targetIndex === 0) {
+      newPosition = cards[1].position - 1;
+    } else if (targetIndex === cards.length - 1) {
+      newPosition = cards[targetIndex - 1].position + 1;
+    } else {
+      const prevPos = cards[targetIndex - 1].position;
+      const nextPos = cards[targetIndex + 1].position;
+      newPosition = prevPos >= nextPos || nextPos - prevPos < 1e-6 ? targetIndex : (prevPos + nextPos) / 2;
+    }
+    try {
+      await api.updateCard(cardId, { position: newPosition });
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          lists: prev.lists.map((l) => (l.id === listId ? { ...l, cards: l.cards.map((c) => (c.id === cardId ? { ...c, position: newPosition } : c)) } : l)),
+        };
+      });
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to reorder card',
+        description: 'The new card order could not be saved. Please try again.',
       });
     }
   };
@@ -1445,6 +1692,11 @@ function App() {
             onUpdateCard={handleUpdateCard}
             onReorderCard={handleReorderCard}
             onMoveCard={handleMoveCard}
+            onMoveCardToCell={handleMoveCardToCell}
+            onAddSwimlane={handleAddSwimlane}
+            onRenameSwimlane={handleRenameSwimlane}
+            onDeleteSwimlane={handleDeleteSwimlane}
+            onReorderSwimlanes={handleReorderSwimlanes}
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
             onCreateLabel={handleCreateLabel}

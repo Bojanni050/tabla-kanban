@@ -84,6 +84,8 @@ export interface Card {
   dueDate?: string | null;
   archived?: boolean;
   assigneeId?: string | null;
+  swimlaneId?: string | null;
+  swimlane?: { id: string; name: string } | null;
   createdAt?: string;
   updatedAt?: string;
   labels?: Label[];
@@ -97,9 +99,19 @@ export interface Card {
   };
 }
 
+export interface Swimlane {
+  id: string;
+  name: string;
+  position: number;
+  boardId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BoardWithDetails extends Board {
   lists: List[];
   labels: Label[];
+  swimlanes?: Swimlane[];
   workspace: Workspace;
   myRole: BoardRole;
 }

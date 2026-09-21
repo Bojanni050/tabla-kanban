@@ -83,6 +83,9 @@ const cardInclude = {
   list: {
     select: { id: true, title: true, boardId: true },
   },
+  swimlane: {
+    select: { id: true, name: true, position: true, boardId: true },
+  },
 } as const;
 
 const createActivity = (
@@ -98,13 +101,40 @@ const createActivity = (
 // PATCH /api/cards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeCard(req, res, req.params.id, 'edit'))) return;
-  const { title, description, position, listId, priority, dueDate, archived, assigneeId } = req.body;
+  const { title, description, position, listId, priority, dueDate, archived, assigneeId, swimlaneId } = req.body;
   if (listId !== undefined) {
     if (typeof listId !== 'string') {
       res.status(400).json({ error: 'Invalid listId' });
       return;
     }
     if (!(await authorizeList(req, res, listId, 'edit'))) return;
+  }
+  // A swimlane must belong to the same board as the card. When the card is also
+  // moving to another list, the board of that target list decides.
+  let validatedSwimlaneId: string | null | undefined = undefined;
+  if (swimlaneId !== undefined) {
+    if (swimlaneId === null || swimlaneId === '') {
+      validatedSwimlaneId = null;
+    } else if (typeof swimlaneId === 'string') {
+      const boardId = typeof listId === 'string'
+        ? (await prisma.list.findUnique({ where: { id: listId }, select: { boardId: true } }))?.boardId
+        : (await prisma.card.findUnique({
+            where: { id: req.params.id },
+            select: { list: { select: { boardId: true } } },
+          }))?.list.boardId;
+      const swimlane = await prisma.swimlane.findUnique({
+        where: { id: swimlaneId },
+        select: { boardId: true },
+      });
+      if (!swimlane || !boardId || swimlane.boardId !== boardId) {
+        res.status(400).json({ error: 'Swimlane must belong to the same board as the card' });
+        return;
+      }
+      validatedSwimlaneId = swimlaneId;
+    } else {
+      res.status(400).json({ error: 'Invalid swimlaneId' });
+      return;
+    }
   }
 
   let validatedPriority: 'LOW' | 'MEDIUM' | 'HIGH' | null | undefined = undefined;
@@ -162,8 +192,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
   }
   try {
-    const before = validatedAssigneeId !== undefined
-      ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true } })
+    const before = validatedAssigneeId !== undefined || validatedSwimlaneId !== undefined
+      ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true, swimlaneId: true } })
       : null;
     // Record assignment changes in the activity history before the update,
     // so the updated card ships with its new activity entry.
@@ -184,6 +214,20 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(actor && { actorName: actor.name ?? actor.email }),
       });
     }
+    // Record swimlane membership changes in the activity history.
+    if (validatedSwimlaneId !== undefined && before && before.swimlaneId !== validatedSwimlaneId) {
+      const swimlane = validatedSwimlaneId
+        ? await prisma.swimlane.findUnique({ where: { id: validatedSwimlaneId }, select: { name: true } })
+        : null;
+      await createActivity(
+        req.params.id,
+        req.userId!,
+        validatedSwimlaneId ? 'card.moved_to_swimlane' : 'card.removed_from_swimlane',
+        {
+          ...(validatedSwimlaneId && { swimlaneId: validatedSwimlaneId, swimlaneName: swimlane?.name ?? null }),
+        }
+      );
+    }
     const card = await prisma.card.update({
       where: { id: req.params.id },
       data: {
@@ -195,6 +239,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(validatedDueDate !== undefined && { dueDate: validatedDueDate }),
         ...(archived !== undefined && { archived: Boolean(archived) }),
         ...(validatedAssigneeId !== undefined && { assigneeId: validatedAssigneeId }),
+        ...(validatedSwimlaneId !== undefined && { swimlaneId: validatedSwimlaneId }),
       },
       include: cardInclude,
     });

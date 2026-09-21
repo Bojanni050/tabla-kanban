@@ -61,6 +61,8 @@ import { AvatarStack, MemberAvatar } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
 import { displayName } from '@/lib/roles';
 import { canEditBoard, canManageBoard } from '@/lib/roles';
+import { SwimlaneBoard } from './SwimlaneBoard';
+import { NameDialog } from '@/components/NameDialog';
 import {
   Dialog,
   DialogContent,
@@ -111,6 +113,11 @@ interface BoardViewProps {
   onUpdateCard: (cardId: string, updates: Partial<Card>) => Promise<boolean>;
   onReorderCard: (listId: string, cardId: string, toIndex: number) => void;
   onMoveCard: (cardId: string, fromListId: string, toListId: string, toIndex: number) => void;
+  onMoveCardToCell: (args: { cardId: string; toListId: string; toSwimlaneId: string | null; toIndex: number }) => void;
+  onAddSwimlane: (name: string) => Promise<boolean>;
+  onRenameSwimlane: (swimlaneId: string, name: string) => Promise<boolean>;
+  onDeleteSwimlane: (swimlaneId: string) => Promise<boolean>;
+  onReorderSwimlanes: (orderedIds: string[]) => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   onCreateLabel?: (name: string, color: string) => Promise<Label | null>;
@@ -172,6 +179,11 @@ export function BoardView({
   onUpdateCard,
   onReorderCard,
   onMoveCard,
+  onMoveCardToCell,
+  onAddSwimlane,
+  onRenameSwimlane,
+  onDeleteSwimlane,
+  onReorderSwimlanes,
   sidebarCollapsed,
   onToggleSidebar,
   onCreateLabel,
@@ -206,6 +218,7 @@ export function BoardView({
   const [newListTitle, setNewListTitle] = useState('');
   const [isAddListMenuOpen, setIsAddListMenuOpen] = useState(false);
   const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
+  const [isAddingSwimlane, setIsAddingSwimlane] = useState(false);
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const listInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -383,6 +396,7 @@ export function BoardView({
     }));
   }, [board.lists, isFiltered, searchQuery, selectedLabelIds, selectedPriorities, dueDateFilter, assigneeFilter, assigneeFilterActive, isMyCardsFilter, currentUserId]);
 
+  const hasSwimlanes = (board.swimlanes?.length ?? 0) > 0;
   const totalCardsCount = useMemo(() => board.lists.reduce((acc, l) => acc + l.cards.length, 0), [board.lists]);
   // Team overview: assigned card count per member, over live board state
   const assigneeCounts = useMemo(() => {
@@ -803,6 +817,25 @@ export function BoardView({
               </div>
             </div>
           </div>
+        ) : hasSwimlanes ? (
+          <div className="h-full overflow-x-auto overflow-y-auto p-4">
+            <SwimlaneBoard
+              swimlanes={board.swimlanes || []}
+              lists={filteredLists}
+              canEdit={canEdit}
+              canManage={canManageBoard(board.myRole)}
+              onDeleteCard={onDeleteCard}
+              onEditCard={onEditCard}
+              onOpenCard={(c) => setSelectedCardId(c.id)}
+              onAddCard={onAddCard}
+              onMoveCard={onMoveCardToCell}
+              onAddSwimlane={onAddSwimlane}
+              onRenameSwimlane={onRenameSwimlane}
+              onDeleteSwimlane={onDeleteSwimlane}
+              onReorderSwimlanes={onReorderSwimlanes}
+              isFiltered={isFiltered}
+            />
+          </div>
         ) : (
           <div className="flex h-full items-start gap-3 overflow-y-hidden p-4">
             {filteredLists.map((list) => (
@@ -902,10 +935,32 @@ export function BoardView({
                 )}
               </div>
             )}
+            {canManageBoard(board.myRole) && !hasSwimlanes && (
+              <div className="w-72 shrink-0">
+                <button
+                  onClick={() => setIsAddingSwimlane(true)}
+                  className="flex w-full items-center gap-1.5 rounded-xl border border-dashed bg-white/60 px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-white hover:text-foreground"
+                  style={{ borderColor: 'var(--kala-line)' }}
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add swimlane
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      <NameDialog
+        open={isAddingSwimlane}
+        onOpenChange={setIsAddingSwimlane}
+        title="Add swimlane"
+        description="A swimlane is a horizontal row across the lists of this board. Existing cards stay in the Unassigned row until you move them."
+        label="Swimlane name"
+        placeholder="e.g. Features, Bugs, Improvements"
+        confirmLabel="Add swimlane"
+        onSubmit={async (name) => { await onAddSwimlane(name); }}
+      />
       {/* key: a different board starts a fresh conversation */}
       <AiPanel
         key={board.id}
@@ -1049,7 +1104,7 @@ export function BoardView({
                 <h3 className="kala-section-label px-1 pb-1">Recent team activity</h3>
                 <ul className="space-y-1">
                   {teamActivity.map((entry) => {
-                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string };
+                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string };
                     const roleLabel = meta.role ? ROLE_META[meta.role as BoardRole]?.label ?? meta.role : null;
                     const text =
                       entry.type === 'member.joined'
@@ -1062,7 +1117,15 @@ export function BoardView({
                               ? `${meta.memberName ?? 'Someone'} left the board`
                               : entry.type === 'member.ownership_transferred'
                                 ? `Ownership was transferred to ${meta.memberName ?? 'a new owner'}`
-                                : null;
+                                : entry.type === 'swimlane.created'
+                                  ? `Swimlane ${meta.swimlaneName ?? ''} was created`.trim()
+                                  : entry.type === 'swimlane.renamed'
+                                    ? `Swimlane was renamed to ${meta.swimlaneName ?? ''}`.trim()
+                                    : entry.type === 'swimlane.deleted'
+                                      ? `Swimlane ${meta.swimlaneName ?? ''} was deleted`.trim()
+                                      : entry.type === 'swimlane.reordered'
+                                        ? 'Swimlanes were reordered'
+                                        : null;
                     if (!text) return null;
                     return (
                       <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F5F4F1] px-3 py-1.5 text-[12px]">

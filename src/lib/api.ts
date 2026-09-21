@@ -1,5 +1,6 @@
 import type {
   AssignableRole,
+  Swimlane,
   Board,
   BoardActivityEntry,
   BoardInvitation,
@@ -190,6 +191,7 @@ export const api = {
       priority?: Priority | null;
       dueDate?: string | null;
       archived?: boolean;
+      swimlaneId?: string | null;
     }
   ) =>
     request<Card>(`/cards/${id}`, {
@@ -206,6 +208,20 @@ export const api = {
     request<Card[]>(`/boards/${boardId}/archived`),
   getBoardActivity: (boardId: string) =>
     request<BoardActivityEntry[]>(`/boards/${boardId}/activity`),
+
+  // Swimlanes
+  createSwimlane: (data: { name: string; boardId: string }) =>
+    request<Swimlane>(`/swimlanes`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateSwimlane: (id: string, data: { name?: string; position?: number }) =>
+    request<Swimlane>(`/swimlanes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteSwimlane: (id: string) =>
+    request<void>(`/swimlanes/${id}`, { method: 'DELETE' }),
 
   // Labels
   createLabel: (data: { name: string; color: string; boardId: string }) =>

@@ -75,6 +75,7 @@ model Board {
   members     BoardMember[]
   invitations Invitation[]
   activities  BoardActivity[]
+  swimlanes   Swimlane[]
 }
 
 enum BoardRole {
@@ -139,6 +140,22 @@ enum Priority {
   HIGH
 }
 
+// A horizontal row grouping cards across lists (Swimlanes v1). Optional: cards
+// without a swimlaneId stay visible in the "Unassigned" row.
+model Swimlane {
+  id        String   @id @default(uuid())
+  name      String
+  position  Float
+  boardId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards Card[]
+
+  @@index([boardId, position])
+}
+
 model Label {
   id        String   @id @default(uuid())
   name      String
@@ -177,10 +194,12 @@ model Card {
   dueDate     DateTime?
   archived    Boolean         @default(false)
   assigneeId  String?
+  swimlaneId  String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
   list           List            @relation(fields: [listId], references: [id], onDelete: Cascade)
+  swimlane       Swimlane?       @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
   labels         Label[]
   checklistItems ChecklistItem[]
   assignee       User?           @relation("CardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
@@ -189,6 +208,7 @@ model Card {
   @@index([listId, position])
   @@index([archived])
   @@index([assigneeId])
+  @@index([swimlaneId])
 }
 
 // One row per board-level change worth surfacing (e.g. team changes).

@@ -603,7 +603,7 @@ export function CardDetailModal({
                       <span className="font-medium text-foreground/80">{formatDateTime(card.updatedAt)}</span>
                     </li>
                     {(card.activities || []).map((entry) => {
-                      const meta = (entry.metadata ?? {}) as { assigneeName?: string; actorName?: string };
+                      const meta = (entry.metadata ?? {}) as { assigneeName?: string; actorName?: string; swimlaneName?: string };
                       const text =
                         entry.type === 'card.assigned'
                           ? `${meta.actorName ? `${meta.actorName} assigned ${meta.assigneeName ?? 'someone'}` : `Assigned to ${meta.assigneeName ?? 'someone'}`}`
@@ -611,7 +611,11 @@ export function CardDetailModal({
                             ? `${meta.actorName ? `${meta.actorName} unassigned the card` : 'Assignee removed'}`
                             : entry.type === 'card.reassigned'
                               ? `${meta.actorName ? `${meta.actorName} reassigned to ${meta.assigneeName ?? 'someone'}` : `Reassigned to ${meta.assigneeName ?? 'someone'}`}`
-                              : null;
+                              : entry.type === 'card.moved_to_swimlane'
+                                ? `Moved to swimlane ${meta.swimlaneName ?? ''}`.trim()
+                                : entry.type === 'card.removed_from_swimlane'
+                                  ? 'Removed from swimlane'
+                                  : null;
                       if (!text) return null;
                       return (
                         <li key={entry.id} className="flex items-center justify-between rounded-lg bg-[#F5F4F1] px-3 py-2">

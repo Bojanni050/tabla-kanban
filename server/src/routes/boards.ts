@@ -50,6 +50,9 @@ router.get('/:id', async (req: Request, res: Response) => {
       labels: {
         orderBy: { createdAt: 'asc' },
       },
+      swimlanes: {
+        orderBy: { position: 'asc' },
+      },
       lists: {
         include: {
           cards: {
@@ -61,6 +64,9 @@ router.get('/:id', async (req: Request, res: Response) => {
               },
               assignee: {
                 select: { id: true, name: true, email: true },
+              },
+              swimlane: {
+                select: { id: true, name: true },
               },
               activities: {
                 orderBy: { createdAt: 'desc' },

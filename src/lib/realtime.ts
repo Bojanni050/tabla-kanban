@@ -20,6 +20,9 @@ export type BoardRealtimeEventType =
   | 'label.created'
   | 'label.updated'
   | 'label.deleted'
+  | 'swimlane.created'
+  | 'swimlane.updated'
+  | 'swimlane.deleted'
   | 'member.added'
   | 'member.updated'
   | 'member.removed';

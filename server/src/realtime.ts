@@ -25,6 +25,9 @@ export type RealtimeEventType =
   | 'label.created'
   | 'label.updated'
   | 'label.deleted'
+  | 'swimlane.created'
+  | 'swimlane.updated'
+  | 'swimlane.deleted'
   | 'member.added'
   | 'member.updated'
   | 'member.removed';

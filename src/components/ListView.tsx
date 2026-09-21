@@ -51,7 +51,7 @@ function IconTip({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) {
+export function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
