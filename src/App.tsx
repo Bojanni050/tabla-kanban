@@ -278,6 +278,58 @@ function App() {
     }
   };
 
+  // Template flow: show all lists immediately, then persist them one by one
+  // through the existing lists API. Sequential awaits keep the template order
+  // because the server assigns each new list the next position.
+  const handleCreateListsFromTemplate = async (boardId: string, titles: string[]): Promise<boolean> => {
+    if (titles.length === 0) return false;
+    const stamp = Date.now();
+    const tempIds = titles.map((_, i) => `temp-list-${stamp}-${i}`);
+    setBoard((prev) => {
+      if (!prev || prev.id !== boardId) return prev;
+      const base = prev.lists.length;
+      return {
+        ...prev,
+        lists: [
+          ...prev.lists,
+          ...titles.map((title, i) => ({
+            id: tempIds[i],
+            title,
+            position: base + i,
+            boardId,
+            cards: [],
+          })),
+        ],
+      };
+    });
+
+    let failed = 0;
+    for (let i = 0; i < titles.length; i++) {
+      try {
+        const created = await api.createList(titles[i], boardId);
+        const tempId = tempIds[i];
+        setBoard((prev) =>
+          prev
+            ? { ...prev, lists: prev.lists.map((l) => (l.id === tempId ? created : l)) }
+            : prev
+        );
+      } catch {
+        failed++;
+      }
+    }
+
+    if (failed > 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Could not create all lists',
+        description: `${failed} of ${titles.length} lists could not be saved. Please try again.`,
+      });
+      return false;
+    }
+    toast({ title: `${titles.length} lists created` });
+    return true;
+  };
+
   const handleAddCard = async (title: string, listId: string) => {
     const tempId = `temp-card-${Date.now()}`;
     const newCard: Card = {
@@ -1328,6 +1380,7 @@ function App() {
           <BoardView
             board={board}
             onAddList={handleAddList}
+            onCreateListsFromTemplate={handleCreateListsFromTemplate}
             onAddCard={handleAddCard}
             onDeleteList={handleDeleteList}
             onDeleteCard={handleDeleteCard}

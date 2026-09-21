@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   Users,
   LayoutGrid,
+  LayoutTemplate,
   SearchX,
   Sparkles,
 } from 'lucide-react';
@@ -53,6 +54,8 @@ import { CardDetailModal } from './CardDetailModal';
 import { MembersDialog } from './MembersDialog';
 import { AiPanel } from './AiPanel';
 import { EmptyState } from './EmptyState';
+import { ListTemplatePicker } from './ListTemplatePicker';
+import type { ListTemplate } from '@/lib/list-templates';
 import { AvatarStack } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
 import { canEditBoard } from '@/lib/roles';
@@ -126,6 +129,8 @@ interface BoardViewProps {
   connectionStatus?: RealtimeStatus;
   /** Latest remote event (with counter) so open panels can catch up. */
   remoteEventTick?: { n: number; event: BoardRealtimeEvent } | null;
+  /** Create several lists at once (template flow). Sequential, order-preserving. */
+  onCreateListsFromTemplate?: (boardId: string, titles: string[]) => Promise<boolean>;
 }
 
 function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
@@ -181,6 +186,7 @@ export function BoardView({
   onOwnershipTransferred,
   connectionStatus = 'connected',
   remoteEventTick = null,
+  onCreateListsFromTemplate,
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
@@ -190,6 +196,9 @@ export function BoardView({
   const [isBoardLabelsOpen, setIsBoardLabelsOpen] = useState(false);
   const [isAddingList, setIsAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
+  const [isAddListMenuOpen, setIsAddListMenuOpen] = useState(false);
+  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const listInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -355,6 +364,14 @@ export function BoardView({
     onAddList(newListTitle.trim(), board.id);
     setNewListTitle('');
     setIsAddingList(false);
+  };
+
+  const handleUseTemplate = async (template: ListTemplate) => {
+    if (!onCreateListsFromTemplate) return;
+    setIsCreatingTemplate(true);
+    const ok = await onCreateListsFromTemplate(board.id, template.lists);
+    setIsCreatingTemplate(false);
+    if (ok) setIsTemplatePickerOpen(false);
   };
 
   const myRoleMeta = ROLE_META[board.myRole];
@@ -682,6 +699,53 @@ export function BoardView({
                       </Button>
                     </div>
                   </div>
+                ) : onCreateListsFromTemplate ? (
+                  <Popover open={isAddListMenuOpen} onOpenChange={setIsAddListMenuOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        aria-label="Add list"
+                        aria-haspopup="menu"
+                        className="flex w-full items-center gap-1.5 rounded-xl border border-dashed bg-white/60 px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-white hover:text-foreground"
+                        style={{ borderColor: 'var(--kala-line)' }}
+                      >
+                        <Plus className="h-4 w-4" aria-hidden />
+                        Add another list
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-1.5" sideOffset={6}>
+                      <p className="kala-section-label px-2 pb-1 pt-1">Add list</p>
+                      <button
+                        onClick={() => {
+                          setIsAddListMenuOpen(false);
+                          setIsAddingList(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#2A2F36] text-white" aria-hidden>
+                          <Plus className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-foreground">Blank list</span>
+                          <span className="block truncate text-[11px] text-muted-foreground">Start empty</span>
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsAddListMenuOpen(false);
+                          setIsTemplatePickerOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#F6E4DC] text-[#9A4A30]" aria-hidden>
+                          <LayoutTemplate className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-foreground">Use a template</span>
+                          <span className="block truncate text-[11px] text-muted-foreground">Simple, Project, Sprint and more</span>
+                        </span>
+                      </button>
+                    </PopoverContent>
+                  </Popover>
                 ) : (
                   <button
                     onClick={() => setIsAddingList(true)}
@@ -738,6 +802,13 @@ export function BoardView({
           setAiCard({ id: c.id, title: c.title });
           setAiOpen(true);
         }}
+      />
+
+      <ListTemplatePicker
+        open={isTemplatePickerOpen}
+        onOpenChange={setIsTemplatePickerOpen}
+        creating={isCreatingTemplate}
+        onUseTemplate={handleUseTemplate}
       />
 
       <MembersDialog
