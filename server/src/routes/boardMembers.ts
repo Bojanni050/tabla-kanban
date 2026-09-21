@@ -4,6 +4,7 @@ import { z } from 'zod';
 import prisma from '../db.js';
 import { authorizeBoard, roleCan } from '../middleware/access.js';
 import { wrap } from '../middleware/async.js';
+import { disconnectUserFromBoard } from '../realtime.js';
 
 // Mounted at /api/boards - membership, invitations, leaving and ownership transfer.
 const router = Router();
@@ -204,6 +205,8 @@ router.delete('/:id/members/:userId', wrap(async (req: Request, res: Response) =
   }
 
   await prisma.boardMember.delete({ where: { id: target.id } });
+  // Stop pushing board events to the removed member immediately.
+  disconnectUserFromBoard(boardId, target.userId);
   res.status(204).send();
 }));
 

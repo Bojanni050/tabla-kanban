@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
 import { authorizeCard, authorizeLabel, authorizeList } from '../middleware/access.js';
+import { broadcast } from '../realtime.js';
 
 const router = Router();
 
@@ -77,6 +78,7 @@ router.post('/', async (req: Request, res: Response) => {
       },
     },
   });
+  broadcast(card.list.boardId, 'card.created', card, req.userId!);
   res.status(201).json(card);
 });
 
@@ -143,6 +145,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         },
       },
     });
+    broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);
   } catch (error) {
     console.error('Error updating card:', error);
@@ -167,6 +170,7 @@ router.post('/:id/archive', async (req: Request, res: Response) => {
         },
       },
     });
+    broadcast(card.list.boardId, 'card.archived', card, req.userId!);
     res.json(card);
   } catch (error) {
     console.error('Error archiving card:', error);
@@ -209,6 +213,7 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
         },
       },
     });
+    broadcast(restoredCard.list.boardId, 'card.restored', restoredCard, req.userId!);
     res.json(restoredCard);
   } catch (error) {
     console.error('Error restoring card:', error);
@@ -254,6 +259,7 @@ router.post('/:id/labels', async (req: Request, res: Response) => {
         },
       },
     });
+    broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);
   } catch (error) {
     console.error('Error attaching label to card:', error);
@@ -282,6 +288,7 @@ router.delete('/:id/labels/:labelId', async (req: Request, res: Response) => {
         },
       },
     });
+    broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);
   } catch (error) {
     console.error('Error removing label from card:', error);
@@ -292,7 +299,19 @@ router.delete('/:id/labels/:labelId', async (req: Request, res: Response) => {
 // DELETE /api/cards/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeCard(req, res, req.params.id, 'edit'))) return;
+  const doomed = await prisma.card.findUnique({
+    where: { id: req.params.id },
+    select: { listId: true, list: { select: { boardId: true } } },
+  });
   await prisma.card.delete({ where: { id: req.params.id } });
+  if (doomed) {
+    broadcast(
+      doomed.list.boardId,
+      'card.deleted',
+      { cardId: req.params.id, listId: doomed.listId, boardId: doomed.list.boardId },
+      req.userId!
+    );
+  }
   res.status(204).send();
 });
 

@@ -155,21 +155,34 @@ export function CardDetailModal({
   const newItemInputRef = useRef<HTMLInputElement>(null);
   const editItemInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Tracks which card the local buffers were initialized from, so live
+  // updates to the same card (own saves, collaborator events) refresh the
+  // view without wiping in-progress title/description edits or popover state.
+  const syncedCardIdRef = useRef<string | null>(null);
+  const isEditingTitleRef = useRef(false);
+  const isEditingDescriptionRef = useRef(false);
+  isEditingTitleRef.current = isEditingTitle;
+  isEditingDescriptionRef.current = isEditingDescription;
 
   useEffect(() => {
     if (card && isOpen) {
-      setTitle(card.title);
-      setDescription(card.description || '');
+      const fresh = syncedCardIdRef.current !== card.id;
+      syncedCardIdRef.current = card.id;
+      if (fresh || !isEditingTitleRef.current) setTitle(card.title);
+      if (fresh || !isEditingDescriptionRef.current) setDescription(card.description || '');
       setPriority(card.priority || 'NONE');
       setDueDate(card.dueDate ? new Date(card.dueDate) : undefined);
-      setIsEditingTitle(false);
-      setIsEditingDescription(false);
-      setSaveStatus('idle');
-      setLabelMode('list');
-      setLabelSearch('');
-      setIsAddingChecklistItem(false);
-      setEditingItemId(null);
+      if (fresh) {
+        setIsEditingTitle(false);
+        setIsEditingDescription(false);
+        setSaveStatus('idle');
+        setLabelMode('list');
+        setLabelSearch('');
+        setIsAddingChecklistItem(false);
+        setEditingItemId(null);
+      }
     }
+    if (!isOpen) syncedCardIdRef.current = null;
   }, [card, isOpen]);
 
   useEffect(() => {

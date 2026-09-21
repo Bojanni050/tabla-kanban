@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { useBoardRealtime } from '@/hooks/use-board-realtime';
 import { api } from '@/lib/api';
+import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import type {
   BoardWithDetails,
   Card,
@@ -42,6 +44,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('reconnecting');
+  // Latest event received from another collaborator (with a counter so that
+  // BoardView can react to it even when the payload is referentially equal).
+  const [remoteEventTick, setRemoteEventTick] = useState<{ n: number; event: BoardRealtimeEvent } | null>(null);
   const { toast } = useToast();
 
   // Check current auth status on mount
@@ -119,6 +125,127 @@ function App() {
       setBoard(null);
     }
   }, [activeBoardId, loadBoard]);
+
+  // Real-time collaboration: merge another user's persisted change into local
+  // board state without reloading. Own events are filtered by the hook, so
+  // this only handles remote changes and never duplicates local updates.
+  const applyRemoteEvent = useCallback((event: BoardRealtimeEvent) => {
+    setRemoteEventTick((prev) => ({ n: (prev?.n ?? 0) + 1, event }));
+    setBoard((prev) => {
+      if (!prev || prev.id !== event.boardId) return prev;
+      const byPosition = (a: { position: number }, b: { position: number }) => a.position - b.position;
+      const removeCard = (cardId: string): BoardWithDetails => ({
+        ...prev,
+        lists: prev.lists.map((l) => ({ ...l, cards: l.cards.filter((c) => c.id !== cardId) })),
+      });
+
+      switch (event.type) {
+        case 'list.created': {
+          const list = event.data as List;
+          if (prev.lists.some((l) => l.id === list.id)) return prev;
+          return { ...prev, lists: [...prev.lists, { ...list, cards: list.cards ?? [] }].sort(byPosition) };
+        }
+        case 'list.updated': {
+          const list = event.data as List;
+          // Merge title/position only: the payload's cards snapshot may be
+          // stale relative to local card state, which events keep in sync.
+          return {
+            ...prev,
+            lists: prev.lists
+              .map((l) => (l.id === list.id ? { ...l, title: list.title, position: list.position } : l))
+              .sort(byPosition),
+          };
+        }
+        case 'list.deleted': {
+          const { listId } = event.data as { listId: string };
+          return { ...prev, lists: prev.lists.filter((l) => l.id !== listId) };
+        }
+        case 'card.created':
+        case 'card.restored': {
+          const card = event.data as Card;
+          if (!prev.lists.some((l) => l.id === card.listId)) return prev;
+          return {
+            ...prev,
+            lists: prev.lists.map((l) =>
+              l.id === card.listId
+                ? { ...l, cards: [...l.cards.filter((c) => c.id !== card.id), card].sort(byPosition) }
+                : { ...l, cards: l.cards.filter((c) => c.id !== card.id) }
+            ),
+          };
+        }
+        case 'card.updated': {
+          const card = event.data as Card;
+          if (card.archived) return removeCard(card.id);
+          if (!prev.lists.some((l) => l.id === card.listId)) return removeCard(card.id);
+          return {
+            ...prev,
+            lists: prev.lists.map((l) =>
+              l.id === card.listId
+                ? { ...l, cards: [...l.cards.filter((c) => c.id !== card.id), card].sort(byPosition) }
+                : { ...l, cards: l.cards.filter((c) => c.id !== card.id) }
+            ),
+          };
+        }
+        case 'card.archived':
+        case 'card.deleted': {
+          const cardId = event.type === 'card.archived'
+            ? (event.data as Card).id
+            : (event.data as { cardId: string }).cardId;
+          return removeCard(cardId);
+        }
+        case 'label.created': {
+          const label = event.data as Label;
+          if ((prev.labels || []).some((l) => l.id === label.id)) return prev;
+          return { ...prev, labels: [...(prev.labels || []), label] };
+        }
+        case 'label.updated': {
+          const label = event.data as Label;
+          return {
+            ...prev,
+            labels: (prev.labels || []).map((l) => (l.id === label.id ? label : l)),
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) => ({
+                ...c,
+                labels: (c.labels || []).map((l) => (l.id === label.id ? label : l)),
+              })),
+            })),
+          };
+        }
+        case 'label.deleted': {
+          const { labelId } = event.data as { labelId: string };
+          return {
+            ...prev,
+            labels: (prev.labels || []).filter((l) => l.id !== labelId),
+            lists: prev.lists.map((list) => ({
+              ...list,
+              cards: list.cards.map((c) => ({
+                ...c,
+                labels: (c.labels || []).filter((l) => l.id !== labelId),
+              })),
+            })),
+          };
+        }
+        default:
+          return prev;
+      }
+    });
+  }, []);
+
+  const handleRealtimeResync = useCallback(
+    (boardId: string) => {
+      loadBoard(boardId);
+    },
+    [loadBoard]
+  );
+
+  useBoardRealtime({
+    boardId: activeBoardId,
+    userId: user?.id ?? null,
+    onEvent: applyRemoteEvent,
+    onResync: handleRealtimeResync,
+    onStatusChange: setRealtimeStatus,
+  });
 
   // Mutations - update local state immediately, try API in background
   const handleAddList = async (title: string, boardId: string) => {
@@ -1222,6 +1349,8 @@ function App() {
             currentUserId={user.id}
             onLeftBoard={handleLeftBoard}
             onOwnershipTransferred={handleOwnershipTransferred}
+            connectionStatus={realtimeStatus}
+            remoteEventTick={remoteEventTick}
           />
         ) : (
           <div className="flex h-full items-center justify-center p-8">

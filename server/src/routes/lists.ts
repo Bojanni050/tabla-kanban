@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
 import { authorizeBoard, authorizeList } from '../middleware/access.js';
+import { boardIdForList, broadcast } from '../realtime.js';
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.post('/', async (req: Request, res: Response) => {
     data: { title, boardId, position },
     include: { cards: { orderBy: { position: 'asc' } } },
   });
+  broadcast(boardId, 'list.created', list, req.userId!);
   res.status(201).json(list);
 });
 
@@ -39,13 +41,16 @@ router.patch('/:id', async (req: Request, res: Response) => {
     },
     include: { cards: { orderBy: { position: 'asc' } } },
   });
+  broadcast(list.boardId, 'list.updated', list, req.userId!);
   res.json(list);
 });
 
 // DELETE /api/lists/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeList(req, res, req.params.id, 'edit'))) return;
+  const boardId = await boardIdForList(req.params.id);
   await prisma.list.delete({ where: { id: req.params.id } });
+  if (boardId) broadcast(boardId, 'list.deleted', { listId: req.params.id, boardId }, req.userId!);
   res.status(204).send();
 });
 

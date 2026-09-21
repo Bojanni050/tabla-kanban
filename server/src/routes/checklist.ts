@@ -1,6 +1,15 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
 import { authorizeCard, authorizeChecklistItem } from '../middleware/access.js';
+import { boardIdForCard, broadcast, getFullCard } from '../realtime.js';
+
+// After a checklist mutation, subscribers get the whole card so every client
+// converges through the same `card.updated` handling (positions, labels and
+// checklist stay consistent without extra round-trips).
+async function broadcastCard(cardId: string, actorId: string): Promise<void> {
+  const [boardId, card] = await Promise.all([boardIdForCard(cardId), getFullCard(cardId)]);
+  if (boardId && card) broadcast(boardId, 'card.updated', card, actorId);
+}
 
 const router = Router();
 
@@ -28,6 +37,7 @@ router.post('/', async (req: Request, res: Response) => {
       completed: false,
     },
   });
+  await broadcastCard(cardId, req.userId!);
   res.status(201).json(item);
 });
 
@@ -44,6 +54,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(position !== undefined && { position: Number(position) }),
       },
     });
+    await broadcastCard(item.cardId, req.userId!);
     res.json(item);
   } catch (error) {
     console.error('Error updating checklist item:', error);
@@ -55,9 +66,14 @@ router.patch('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeChecklistItem(req, res, req.params.id, 'edit'))) return;
   try {
+    const doomed = await prisma.checklistItem.findUnique({
+      where: { id: req.params.id },
+      select: { cardId: true },
+    });
     await prisma.checklistItem.delete({
       where: { id: req.params.id },
     });
+    if (doomed) await broadcastCard(doomed.cardId, req.userId!);
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting checklist item:', error);
@@ -88,6 +104,7 @@ router.post('/reorder', async (req: Request, res: Response) => {
       where: { cardId },
       orderBy: { position: 'asc' },
     });
+    await broadcastCard(cardId, req.userId!);
     res.json(updatedItems);
   } catch (error) {
     console.error('Error reordering checklist items:', error);

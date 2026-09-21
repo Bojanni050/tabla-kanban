@@ -11,6 +11,7 @@ import cardRoutes from './routes/cards.js';
 import workspaceRoutes from './routes/workspaces.js';
 import labelRoutes from './routes/labels.js';
 import checklistRoutes from './routes/checklist.js';
+import realtimeRoutes from './routes/realtime.js';
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
@@ -50,6 +51,7 @@ app.use('/api/lists', requireAuth, listRoutes);
 app.use('/api/cards', requireAuth, cardRoutes);
 app.use('/api/labels', requireAuth, labelRoutes);
 app.use('/api/checklist', requireAuth, checklistRoutes);
+app.use('/api/realtime', requireAuth, realtimeRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

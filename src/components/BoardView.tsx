@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
 import type { BoardWithDetails, Card, Label, Priority, BoardMember } from '@/types';
+import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,6 +120,10 @@ interface BoardViewProps {
   currentUserId: string;
   onLeftBoard: () => void;
   onOwnershipTransferred: () => void;
+  /** Live connection state; the indicator only renders while unavailable. */
+  connectionStatus?: RealtimeStatus;
+  /** Latest remote event (with counter) so open panels can catch up. */
+  remoteEventTick?: { n: number; event: BoardRealtimeEvent } | null;
 }
 
 function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
@@ -172,6 +177,8 @@ export function BoardView({
   currentUserId,
   onLeftBoard,
   onOwnershipTransferred,
+  connectionStatus = 'connected',
+  remoteEventTick = null,
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
@@ -228,6 +235,22 @@ export function BoardView({
       setCardToDeletePermanently(null);
     }
   };
+
+  // Keep the open archived-cards panel in sync with collaborators' actions.
+  useEffect(() => {
+    if (!isArchivedCardsOpen || !remoteEventTick) return;
+    const { event } = remoteEventTick;
+    if (event.type === 'card.archived') {
+      const card = event.data as Card;
+      setArchivedCards((prev) => (prev.some((c) => c.id === card.id) ? prev : [card, ...prev]));
+    } else if (event.type === 'card.restored') {
+      const card = event.data as Card;
+      setArchivedCards((prev) => prev.filter((c) => c.id !== card.id));
+    } else if (event.type === 'card.deleted') {
+      const { cardId } = event.data as { cardId: string };
+      setArchivedCards((prev) => prev.filter((c) => c.id !== cardId));
+    }
+  }, [isArchivedCardsOpen, remoteEventTick]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
@@ -353,6 +376,20 @@ export function BoardView({
               <span className="hidden shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground md:inline-flex" style={{ borderColor: 'var(--kala-line)' }} title={myRoleMeta.description}>
                 <myRoleMeta.icon className="h-3 w-3" aria-hidden />
                 {myRoleMeta.label}
+              </span>
+            )}
+            {connectionStatus !== 'connected' && (
+              <span
+                role="status"
+                aria-label={connectionStatus === 'offline' ? 'Offline. Changes will sync when reconnected.' : 'Reconnecting to live updates.'}
+                title={connectionStatus === 'offline' ? 'Offline - working locally. The board will sync when the connection returns.' : 'Reconnecting to live updates...'}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#E8D9B8] bg-[#FAF3E2] px-2 py-0.5 text-[11px] font-medium text-[#7A5F1F]"
+              >
+                <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#D9A03F] opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#D9A03F]" />
+                </span>
+                {connectionStatus === 'offline' ? 'Offline' : 'Reconnecting'}
               </span>
             )}
           </div>

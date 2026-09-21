@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
 import { authorizeBoard, authorizeLabel } from '../middleware/access.js';
+import { boardIdForLabel, broadcast } from '../realtime.js';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.post('/', async (req: Request, res: Response) => {
       boardId,
     },
   });
+  broadcast(boardId, 'label.created', label, req.userId!);
   res.status(201).json(label);
 });
 
@@ -45,6 +47,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(color !== undefined && { color: color.trim() }),
       },
     });
+    broadcast(label.boardId, 'label.updated', label, req.userId!);
     res.json(label);
   } catch (error) {
     console.error('Error updating label:', error);
@@ -56,9 +59,11 @@ router.patch('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeLabel(req, res, req.params.id, 'edit'))) return;
   try {
+    const boardId = await boardIdForLabel(req.params.id);
     await prisma.label.delete({
       where: { id: req.params.id },
     });
+    if (boardId) broadcast(boardId, 'label.deleted', { labelId: req.params.id, boardId }, req.userId!);
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting label:', error);
