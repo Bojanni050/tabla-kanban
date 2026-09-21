@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../db.js';
 import { authorizeCard, authorizeLabel, authorizeList } from '../middleware/access.js';
 import { broadcast } from '../realtime.js';
@@ -10,15 +11,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeCard(req, res, req.params.id))) return;
   const card = await prisma.card.findUnique({
     where: { id: req.params.id },
-    include: {
-      labels: true,
-      checklistItems: {
-        orderBy: { position: 'asc' },
-      },
-      list: {
-        select: { id: true, title: true, boardId: true },
-      },
-    },
+    include: cardInclude,
   });
   if (!card) {
     res.status(404).json({ error: 'Card not found' });
@@ -68,24 +61,44 @@ router.post('/', async (req: Request, res: Response) => {
       priority: validatedPriority,
       dueDate: validatedDueDate,
     },
-    include: {
-      labels: true,
-      checklistItems: {
-        orderBy: { position: 'asc' },
-      },
-      list: {
-        select: { id: true, title: true, boardId: true },
-      },
-    },
+    include: cardInclude,
   });
   broadcast(card.list.boardId, 'card.created', card, req.userId!);
   res.status(201).json(card);
 });
 
+// A card always ships with its assignee, activity and nested relations.
+const cardInclude = {
+  labels: true,
+  checklistItems: {
+    orderBy: { position: 'asc' },
+  },
+  assignee: {
+    select: { id: true, name: true, email: true },
+  },
+  activities: {
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  },
+  list: {
+    select: { id: true, title: true, boardId: true },
+  },
+} as const;
+
+const createActivity = (
+  cardId: string,
+  actorId: string,
+  type: string,
+  metadata?: Prisma.InputJsonValue
+) =>
+  prisma.cardActivity.create({
+    data: { cardId, actorId, type, ...(metadata && { metadata }) },
+  });
+
 // PATCH /api/cards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
   if (!(await authorizeCard(req, res, req.params.id, 'edit'))) return;
-  const { title, description, position, listId, priority, dueDate, archived } = req.body;
+  const { title, description, position, listId, priority, dueDate, archived, assigneeId } = req.body;
   if (listId !== undefined) {
     if (typeof listId !== 'string') {
       res.status(400).json({ error: 'Invalid listId' });
@@ -123,7 +136,54 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
   }
 
+  // An assignee must be a member of the board the card belongs to.
+  let validatedAssigneeId: string | null | undefined = undefined;
+  if (assigneeId !== undefined) {
+    if (assigneeId === null || assigneeId === '') {
+      validatedAssigneeId = null;
+    } else if (typeof assigneeId === 'string') {
+      const card = await prisma.card.findUnique({
+        where: { id: req.params.id },
+        select: { list: { select: { boardId: true } } },
+      });
+      const membership = card
+        ? await prisma.boardMember.findUnique({
+            where: { boardId_userId: { boardId: card.list.boardId, userId: assigneeId } },
+          })
+        : null;
+      if (!membership) {
+        res.status(400).json({ error: 'Assignee must be a member of this board' });
+        return;
+      }
+      validatedAssigneeId = assigneeId;
+    } else {
+      res.status(400).json({ error: 'Invalid assigneeId' });
+      return;
+    }
+  }
   try {
+    const before = validatedAssigneeId !== undefined
+      ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true } })
+      : null;
+    // Record assignment changes in the activity history before the update,
+    // so the updated card ships with its new activity entry.
+    if (validatedAssigneeId !== undefined && before && before.assigneeId !== validatedAssigneeId) {
+      const assignee = validatedAssigneeId
+        ? await prisma.user.findUnique({
+            where: { id: validatedAssigneeId },
+            select: { name: true, email: true },
+          })
+        : null;
+      const type = !before.assigneeId ? 'card.assigned' : !validatedAssigneeId ? 'card.unassigned' : 'card.reassigned';
+      const actor = await prisma.user.findUnique({
+        where: { id: req.userId! },
+        select: { name: true, email: true },
+      });
+      await createActivity(req.params.id, req.userId!, type, {
+        ...(assignee && { assigneeId: validatedAssigneeId, assigneeName: assignee.name ?? assignee.email }),
+        ...(actor && { actorName: actor.name ?? actor.email }),
+      });
+    }
     const card = await prisma.card.update({
       where: { id: req.params.id },
       data: {
@@ -134,16 +194,9 @@ router.patch('/:id', async (req: Request, res: Response) => {
         ...(validatedPriority !== undefined && { priority: validatedPriority }),
         ...(validatedDueDate !== undefined && { dueDate: validatedDueDate }),
         ...(archived !== undefined && { archived: Boolean(archived) }),
+        ...(validatedAssigneeId !== undefined && { assigneeId: validatedAssigneeId }),
       },
-      include: {
-        labels: true,
-        checklistItems: {
-          orderBy: { position: 'asc' },
-        },
-        list: {
-          select: { id: true, title: true, boardId: true },
-        },
-      },
+      include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);
@@ -160,15 +213,7 @@ router.post('/:id/archive', async (req: Request, res: Response) => {
     const card = await prisma.card.update({
       where: { id: req.params.id },
       data: { archived: true },
-      include: {
-        labels: true,
-        checklistItems: {
-          orderBy: { position: 'asc' },
-        },
-        list: {
-          select: { id: true, title: true, boardId: true },
-        },
-      },
+      include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.archived', card, req.userId!);
     res.json(card);
@@ -203,15 +248,7 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
         archived: false,
         position: nextPosition,
       },
-      include: {
-        labels: true,
-        checklistItems: {
-          orderBy: { position: 'asc' },
-        },
-        list: {
-          select: { id: true, title: true, boardId: true },
-        },
-      },
+      include: cardInclude,
     });
     broadcast(restoredCard.list.boardId, 'card.restored', restoredCard, req.userId!);
     res.json(restoredCard);
@@ -249,15 +286,7 @@ router.post('/:id/labels', async (req: Request, res: Response) => {
           connect: { id: labelId },
         },
       },
-      include: {
-        labels: true,
-        checklistItems: {
-          orderBy: { position: 'asc' },
-        },
-        list: {
-          select: { id: true, title: true, boardId: true },
-        },
-      },
+      include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);
@@ -278,15 +307,7 @@ router.delete('/:id/labels/:labelId', async (req: Request, res: Response) => {
           disconnect: { id: req.params.labelId },
         },
       },
-      include: {
-        labels: true,
-        checklistItems: {
-          orderBy: { position: 'asc' },
-        },
-        list: {
-          select: { id: true, title: true, boardId: true },
-        },
-      },
+      include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.updated', card, req.userId!);
     res.json(card);

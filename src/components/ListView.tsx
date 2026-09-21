@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/EmptyState';
+import { MemberAvatar } from '@/components/MemberAvatar';
 
 interface CardItemProps {
   card: Card;
@@ -147,7 +148,7 @@ function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) 
           </p>
         )}
 
-        {(card.dueDate || card.priority || checklist.length > 0 || card.description) && (
+        {(card.dueDate || card.priority || checklist.length > 0 || card.description || card.assignee) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {card.dueDate && (
               <span
@@ -199,6 +200,11 @@ function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItemProps) 
             {card.description && (
               <span className="inline-flex items-center text-muted-foreground/70" title="This card has a description" aria-label="Has description">
                 <AlignLeft className="h-3 w-3" aria-hidden />
+              </span>
+            )}
+            {card.assignee && (
+              <span className="ml-auto" aria-label={`Assigned to ${card.assignee.name || card.assignee.email}`}>
+                <MemberAvatar person={card.assignee} size="sm" />
               </span>
             )}
           </div>

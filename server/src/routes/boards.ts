@@ -59,6 +59,13 @@ router.get('/:id', async (req: Request, res: Response) => {
               checklistItems: {
                 orderBy: { position: 'asc' },
               },
+              assignee: {
+                select: { id: true, name: true, email: true },
+              },
+              activities: {
+                orderBy: { createdAt: 'desc' },
+                take: 20,
+              },
             },
             orderBy: { position: 'asc' },
           },

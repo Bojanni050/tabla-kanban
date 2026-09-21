@@ -19,9 +19,13 @@ import {
   Archive,
   History,
   Sparkles,
+  UserRound,
+  ChevronDown,
 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
-import type { Card, Label, Priority } from '@/types';
+import type { BoardMember, Card, Label, Priority } from '@/types';
+import { MemberAvatar } from './MemberAvatar';
+import { displayName as memberDisplayName } from '@/lib/roles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -77,6 +81,7 @@ interface CardDetailModalProps {
   card: Card | null;
   listTitle?: string;
   boardLabels: Label[];
+  boardMembers?: BoardMember[];
   isOpen: boolean;
   onClose: () => void;
   onUpdateCard: (cardId: string, updates: Partial<Card>) => Promise<boolean>;
@@ -112,6 +117,7 @@ export function CardDetailModal({
   card,
   listTitle,
   boardLabels,
+  boardMembers = [],
   isOpen,
   onClose,
   onUpdateCard,
@@ -135,6 +141,7 @@ export function CardDetailModal({
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [priority, setPriority] = useState<Priority | 'NONE'>('NONE');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  const [isSavingAssignee, setIsSavingAssignee] = useState(false);
 
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
@@ -244,6 +251,15 @@ export function CardDetailModal({
   const handleCancelDescription = () => {
     setDescription(card.description || '');
     setIsEditingDescription(false);
+  };
+
+  const handleAssigneeChange = async (val: string) => {
+    const newAssigneeId = val === 'NONE' ? null : val;
+    setIsSavingAssignee(true);
+    const success = await onUpdateCard(card.id, { assigneeId: newAssigneeId });
+    setIsSavingAssignee(false);
+    if (success) triggerSaveIndicator('saved');
+    else triggerSaveIndicator('error');
   };
 
   const handlePriorityChange = async (val: string) => {
@@ -586,8 +602,28 @@ export function CardDetailModal({
                       <span className="flex items-center gap-1.5 text-muted-foreground"><Clock className="h-3.5 w-3.5" aria-hidden /> Last updated</span>
                       <span className="font-medium text-foreground/80">{formatDateTime(card.updatedAt)}</span>
                     </li>
+                    {(card.activities || []).map((entry) => {
+                      const meta = (entry.metadata ?? {}) as { assigneeName?: string; actorName?: string };
+                      const text =
+                        entry.type === 'card.assigned'
+                          ? `${meta.actorName ? `${meta.actorName} assigned ${meta.assigneeName ?? 'someone'}` : `Assigned to ${meta.assigneeName ?? 'someone'}`}`
+                          : entry.type === 'card.unassigned'
+                            ? `${meta.actorName ? `${meta.actorName} unassigned the card` : 'Assignee removed'}`
+                            : entry.type === 'card.reassigned'
+                              ? `${meta.actorName ? `${meta.actorName} reassigned to ${meta.assigneeName ?? 'someone'}` : `Reassigned to ${meta.assigneeName ?? 'someone'}`}`
+                              : null;
+                      if (!text) return null;
+                      return (
+                        <li key={entry.id} className="flex items-center justify-between rounded-lg bg-[#F5F4F1] px-3 py-2">
+                          <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground"><UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden /> {text}</span>
+                          <span className="shrink-0 pl-2 font-medium text-foreground/80">{formatDateTime(entry.createdAt)}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
-                  <p className="px-0.5 text-xs text-muted-foreground">No further activity yet. Checklist changes and edits update the timestamp above.</p>
+                  {(card.activities || []).length === 0 && (
+                    <p className="px-0.5 text-xs text-muted-foreground">No further activity yet. Checklist changes and edits update the timestamp above.</p>
+                  )}
                 </section>
               </div>
 
@@ -687,7 +723,65 @@ export function CardDetailModal({
                   </Popover>
                 </section>
 
-                {/* 4 — Priority & Due date */}
+                {/* 4 — Assignee */}
+                {boardMembers.length > 0 && (
+                  <section className="space-y-1.5" aria-label="Assignee">
+                    <h3 className="kala-section-label flex items-center gap-1.5"><UserRound className="h-3.5 w-3.5" aria-hidden />Assignee</h3>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={readOnly || isSavingAssignee}
+                          className="h-9 w-full justify-between bg-white px-2.5 text-xs font-normal"
+                          aria-label={card.assignee ? `Assignee: ${memberDisplayName(card.assignee)}. Change assignee` : 'Set assignee'}
+                        >
+                          {card.assignee ? (
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              <MemberAvatar person={card.assignee} size="sm" />
+                              <span className="truncate text-foreground">{memberDisplayName(card.assignee)}</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2 text-muted-foreground">
+                              <UserRound className="h-3.5 w-3.5" aria-hidden /> Not assigned
+                            </span>
+                          )}
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-1.5" align="start">
+                        <p className="kala-section-label px-2 pb-1 pt-0.5">Assign to</p>
+                        <div className="max-h-56 space-y-0.5 overflow-y-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleAssigneeChange('NONE')}
+                            className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+                          >
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground" aria-hidden>—</span>
+                            <span className="text-xs text-muted-foreground">Not assigned</span>
+                            {!card.assigneeId && <Check className="ml-auto h-3.5 w-3.5 text-foreground" aria-label="Currently not assigned" />}
+                          </button>
+                          {boardMembers.map((member) => (
+                            <button
+                              key={member.userId}
+                              type="button"
+                              onClick={() => handleAssigneeChange(member.userId)}
+                              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
+                            >
+                              <MemberAvatar person={member} size="sm" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-medium text-foreground">{memberDisplayName(member)}</span>
+                                <span className="block truncate text-[10px] text-muted-foreground">{member.email}</span>
+                              </span>
+                              {card.assigneeId === member.userId && <Check className="h-3.5 w-3.5 shrink-0 text-foreground" aria-label="Currently assigned" />}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </section>
+                )}
+                {/* 5 — Priority & Due date */}
                 <section className="space-y-4" aria-label="Priority and due date">
                   <div className="space-y-1.5">
                     <h3 className="kala-section-label flex items-center gap-1.5"><Flag className="h-3.5 w-3.5" aria-hidden />Priority</h3>

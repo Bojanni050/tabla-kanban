@@ -805,6 +805,7 @@ export function BoardView({
         card={selectedCard}
         listTitle={selectedList?.title}
         boardLabels={board.labels || []}
+        boardMembers={memberPreview}
         isOpen={!!selectedCard}
         onClose={() => setSelectedCardId(null)}
         onUpdateCard={onUpdateCard}

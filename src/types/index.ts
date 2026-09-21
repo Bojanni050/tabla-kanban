@@ -49,6 +49,22 @@ export interface List {
 
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH';
 
+// Minimal person shape embedded in cards and activity entries
+export interface CardPerson {
+  id: string;
+  name: string | null;
+  email: string;
+}
+
+export interface CardActivityEntry {
+  id: string;
+  cardId: string;
+  actorId: string | null;
+  type: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -58,10 +74,13 @@ export interface Card {
   priority?: Priority | null;
   dueDate?: string | null;
   archived?: boolean;
+  assigneeId?: string | null;
   createdAt?: string;
   updatedAt?: string;
   labels?: Label[];
   checklistItems?: ChecklistItem[];
+  assignee?: CardPerson | null;
+  activities?: CardActivityEntry[];
   list?: {
     id: string;
     title: string;

@@ -511,7 +511,11 @@ function App() {
             ...prev,
             lists: prev.lists.map((l) => ({
               ...l,
-              cards: l.cards.map((c) => (c.id === cardId ? { ...c, ...updated } : c)),
+              cards: l.cards.map((c) =>
+                c.id === cardId
+                  ? { ...c, ...updated, assigneeId: updated.assigneeId ?? null, assignee: updated.assignee ?? null }
+                  : c
+              ),
             })),
           };
         });
