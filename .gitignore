@@ -33,3 +33,6 @@ credentials.json
 # Allow the committed environment templates (the patterns above ignore real env files)
 !.env.example
 !server/.env.example
+
+# Database backups written by scripts/backup-db.sh
+backups/

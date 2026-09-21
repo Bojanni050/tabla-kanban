@@ -150,7 +150,21 @@ docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTG
 docker compose exec -T postgres sh -c 'rm /tmp/kala.dump'
 ```
 
-Store backups somewhere other than the Docker host, and test restoring them.
+**Automated backups.** `scripts/backup-db.sh` does the backup step for you: it dumps the database, checks that the dump can be read back, and keeps the newest 14 files in `backups/` (git-ignored). Run it from anywhere; it exits non-zero on any failure, so cron/Plesk can report problems.
+
+```bash
+bash scripts/backup-db.sh                 # one backup now
+KEEP=30 bash scripts/backup-db.sh         # keep 30 instead of 14
+BACKUP_DIR=/srv/kala-backups bash scripts/backup-db.sh
+```
+
+To run it daily, add a Plesk *Scheduled Task* (Tools & Settings → Scheduled Tasks) with the command below, run as a user that may use Docker (root, or `bojan` if he is in the `docker` group):
+
+```bash
+/bin/bash /opt/kala/scripts/backup-db.sh >> /opt/kala/backups/backup.log 2>&1
+```
+
+Store backups somewhere other than the Docker host (for example `rsync` or `scp` the newest dump to another machine), and test restoring them.
 
 ### Updating
 

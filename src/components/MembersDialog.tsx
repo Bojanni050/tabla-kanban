@@ -227,7 +227,7 @@ export function MembersDialog({
                 <h3 className="kala-section-label flex items-center gap-1.5">
                   <MailPlus className="h-3.5 w-3.5" aria-hidden /> Invite by email
                 </h3>
-                <form className="flex flex-col gap-2 sm:flex-row sm:items-center" onSubmit={(e) => { e.preventDefault(); handleInvite(); }}>
+                <form noValidate className="flex flex-col gap-2 sm:flex-row sm:items-center" onSubmit={(e) => { e.preventDefault(); handleInvite(); }}>
                   <Input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="name@example.com" aria-label="Email to invite" className="h-9 flex-1 bg-white text-sm" />
                   <div className="flex items-center gap-2">
                     <RoleSelect value={inviteRole} onChange={setInviteRole} label="Role for new invitation" />

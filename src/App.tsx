@@ -5,6 +5,7 @@ import { BoardView } from '@/components/BoardView';
 import { AuthPage } from '@/components/AuthPage';
 import { InvitePage } from '@/components/InvitePage';
 import { EmptyState } from '@/components/EmptyState';
+import { NameDialog } from '@/components/NameDialog';
 import { AppLoadingShell } from '@/components/LoadingStates';
 import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
@@ -44,6 +45,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('reconnecting');
   // Latest event received from another collaborator (with a counter so that
   // BoardView can react to it even when the payload is referentially equal).
@@ -1369,10 +1371,7 @@ function App() {
                   !error && !hasAnyBoards ? (
                     <Button
                       className="bg-[#2A2F36] text-white hover:bg-[#1E2329]"
-                      onClick={() => {
-                        const name = window.prompt('Workspace name');
-                        if (name?.trim()) handleCreateWorkspace(name.trim());
-                      }}
+                      onClick={() => setNewWorkspaceOpen(true)}
                     >
                       Create workspace
                     </Button>
@@ -1383,6 +1382,16 @@ function App() {
           </div>
         )}
       </main>
+      <NameDialog
+        open={newWorkspaceOpen}
+        onOpenChange={setNewWorkspaceOpen}
+        title="Create workspace"
+        description="A workspace groups your boards. You can rename it later."
+        label="Workspace name"
+        placeholder="e.g. Marketing"
+        confirmLabel="Create workspace"
+        onSubmit={handleCreateWorkspace}
+      />
       <Toaster />
     </div>
     </TooltipProvider>

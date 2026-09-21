@@ -106,7 +106,7 @@ export function AuthPage({ onSuccess, hasInvitation }: AuthPageProps) {
 
             <CardContent>
               <TabsContent value="login" className="mt-0 space-y-4">
-                <form onSubmit={handleLogin} className="space-y-4">
+                <form onSubmit={handleLogin} noValidate className="space-y-4">
                   {loginError && (
                     <div className="rounded-lg border border-destructive/25 bg-destructive/[0.06] p-3 text-sm font-medium text-destructive" role="alert">
                       {loginError}
@@ -134,7 +134,7 @@ export function AuthPage({ onSuccess, hasInvitation }: AuthPageProps) {
               </TabsContent>
 
               <TabsContent value="register" className="mt-0 space-y-4">
-                <form onSubmit={handleRegister} className="space-y-4">
+                <form onSubmit={handleRegister} noValidate className="space-y-4">
                   {registerError && (
                     <div className="rounded-lg border border-destructive/25 bg-destructive/[0.06] p-3 text-sm font-medium text-destructive" role="alert">
                       {registerError}
