@@ -6,6 +6,7 @@ import { authorizeBoard, roleCan } from '../middleware/access.js';
 import { wrap } from '../middleware/async.js';
 import { broadcast, disconnectUserFromBoard } from '../realtime.js';
 import { Prisma } from '@prisma/client';
+import { sendBoardInvitationEmail, invitationAcceptUrl, isEmailConfigured } from '../services/emailService.js';
 
 // Mounted at /api/boards - membership, invitations, leaving and ownership transfer.
 const router = Router();
@@ -124,6 +125,10 @@ router.post('/:id/invitations', wrap(async (req: Request, res: Response) => {
     return;
   }
 
+  const [board, inviter] = await Promise.all([
+    prisma.board.findUnique({ where: { id: boardId }, select: { name: true } }),
+    prisma.user.findUnique({ where: { id: req.userId! }, select: { name: true, email: true } }),
+  ]);
   const invitation = await prisma.invitation.create({
     data: {
       boardId,
@@ -134,13 +139,130 @@ router.post('/:id/invitations', wrap(async (req: Request, res: Response) => {
       expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
     },
   });
-
+  // Without an API key the invitation can only be shared by link. That is fine
+  // for local development; in production it must be an explicit failure so no
+  // invitation is silently reported as emailed.
+  if (!isEmailConfigured()) {
+    if (process.env.NODE_ENV === 'production') {
+      await prisma.invitation.delete({ where: { id: invitation.id } }).catch(() => {});
+      console.error('Board invitation email failed', {
+        invitationId: invitation.id,
+        error: 'Email is not configured (RESEND_API_KEY is not set)',
+      });
+      res.status(502).json({ error: 'Could not send invitation. Please try again.' });
+      return;
+    }
+    res.status(201).json({
+      id: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      token: invitation.token,
+      expiresAt: invitation.expiresAt,
+      createdAt: invitation.createdAt,
+      userExists: existingUser !== null,
+    });
+    return;
+  }
+  // The invitation is only reported as sent once Resend has accepted it. On
+  // failure the invitation is deleted again and the caller gets a clear error.
+  try {
+    const result = await sendBoardInvitationEmail({
+      invitationId: invitation.id,
+      to: invitation.email,
+      boardName: board?.name ?? 'a board',
+      inviterName: inviter ? inviter.name ?? inviter.email : 'Someone',
+      role: invitation.role,
+      acceptUrl: invitationAcceptUrl(invitation.token),
+      expiresAt: invitation.expiresAt,
+    });
+    console.log('Board invitation email sent', { invitationId: invitation.id, messageId: result.messageId });
+  } catch (err) {
+    await prisma.invitation.delete({ where: { id: invitation.id } }).catch(() => {});
+    console.error('Board invitation email failed', {
+      invitationId: invitation.id,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
+    res.status(502).json({ error: 'Could not send invitation. Please try again.' });
+    return;
+  }
   res.status(201).json({
     id: invitation.id,
     email: invitation.email,
     role: invitation.role,
     token: invitation.token,
     expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+    userExists: existingUser !== null,
+  });
+}));
+
+// POST /api/boards/:id/invitations/:invitationId/resend - send a pending
+// invitation again (owner/admin). The invitation gets a fresh token (the old
+// one stops working) and a fresh expiry, then a new email is sent.
+router.post('/:id/invitations/:invitationId/resend', wrap(async (req: Request, res: Response) => {
+  const boardId = req.params.id;
+  if (!(await authorizeBoard(req, res, boardId, 'manage'))) return;
+  const invitation = await prisma.invitation.findFirst({
+    where: { id: req.params.invitationId, boardId, ...pendingWhere() },
+  });
+  if (!invitation) {
+    res.status(404).json({ error: 'Invitation not found' });
+    return;
+  }
+  const token = randomBytes(32).toString('base64url');
+  const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
+  const existingUser = await prisma.user.findFirst({
+    where: { email: { equals: invitation.email, mode: 'insensitive' } },
+    select: { id: true },
+  });
+  // updateMany guards against concurrent use of the old token.
+  const updated = await prisma.invitation.updateMany({
+    where: { id: invitation.id, acceptedAt: null, declinedAt: null, expiresAt: { gt: new Date() } },
+    data: { token, expiresAt },
+  });
+  if (updated.count !== 1) {
+    res.status(410).json({ error: 'This invitation is no longer valid' });
+    return;
+  }
+  if (!isEmailConfigured() && process.env.NODE_ENV === 'production') {
+    console.error('Board invitation email failed', {
+      invitationId: invitation.id,
+      error: 'Email is not configured (RESEND_API_KEY is not set)',
+    });
+    res.status(502).json({ error: 'Could not send invitation. Please try again.' });
+    return;
+  }
+  if (isEmailConfigured()) {
+    const [board, inviter] = await Promise.all([
+      prisma.board.findUnique({ where: { id: boardId }, select: { name: true } }),
+      prisma.user.findUnique({ where: { id: req.userId! }, select: { name: true, email: true } }),
+    ]);
+    try {
+      const result = await sendBoardInvitationEmail({
+        invitationId: invitation.id,
+        to: invitation.email,
+        boardName: board?.name ?? 'a board',
+        inviterName: inviter ? inviter.name ?? inviter.email : 'Someone',
+        role: invitation.role,
+        acceptUrl: invitationAcceptUrl(token),
+        expiresAt,
+      });
+      console.log('Board invitation email sent', { invitationId: invitation.id, messageId: result.messageId });
+    } catch (err) {
+      console.error('Board invitation email failed', {
+        invitationId: invitation.id,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+      res.status(502).json({ error: 'Could not send invitation. Please try again.' });
+      return;
+    }
+  }
+  res.json({
+    id: invitation.id,
+    email: invitation.email,
+    role: invitation.role,
+    token,
+    expiresAt,
     createdAt: invitation.createdAt,
     userExists: existingUser !== null,
   });

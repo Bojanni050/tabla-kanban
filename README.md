@@ -282,6 +282,55 @@ Plesk's own backups do **not** include Docker volumes. Schedule the PostgreSQL b
 
 ---
 
+## Transactional email (Resend)
+
+Kala sends board invitation emails through [Resend](https://resend.com). The
+integration is configured with three environment variables (already in
+`.env.example`):
+
+```env
+RESEND_API_KEY="re_..."                  # API key from Resend - backend only, never in Git
+EMAIL_FROM="Kala <noreply@kala.studiovanderheide.nl>"
+APP_URL="https://kala.studiovanderheide.nl"
+```
+
+- `RESEND_API_KEY` is read **only** by the backend. It is never sent to the
+  browser and must never be committed.
+- `EMAIL_FROM` must use the verified production domain. Do **not** use
+  `onboarding@resend.dev` for production.
+- `APP_URL` is the public origin of the app; invitation emails link to
+  `${APP_URL}/invitations/<token>`.
+
+If `RESEND_API_KEY` is not set, creating an invitation returns a clear error
+instead of pretending it was sent: the invitation is only stored when Resend
+accepts the email.
+
+### DNS records for the sending domain
+
+Before Resend will send from your domain, add it at
+[resend.com/domains](https://resend.com/domains) (enter
+`kala.studiovanderheide.nl`) and create these DNS records with your DNS
+provider (the exact values are shown by Resend when you add the domain):
+
+| Type  | Name                                     | Value                                        | Purpose                          |
+| ----- | ---------------------------------------- | -------------------------------------------- | -------------------------------- |
+| TXT   | `resend._domainkey` (or `_resend`)       | shown by Resend (starts with `p=`)          | DKIM - signs outgoing mail       |
+| TXT   | `@` (root)                               | shown by Resend (starts with `v=spf1`)      | SPF - authorizes Resend to send  |
+
+Recommended, so invitations do not end up in spam and spoofed mail is rejected:
+
+| Type  | Name  | Value                                                                    | Purpose                  |
+| ----- | ----- | ------------------------------------------------------------------------ | ------------------------ |
+| TXT   | `@`   | `v=DMARC1; p=quarantine; rua=mailto:dmarc@studiovanderheide.nl`          | DMARC policy             |
+
+After adding the records, press **Verify** in Resend (DNS propagation can take
+up to 48 hours, usually minutes). The domain status must be **Verified** before
+`noreply@kala.studiovanderheide.nl` can be used as the sender. The DNS
+configuration itself lives entirely in Resend and at the DNS provider - Kala
+only needs the API key and sender address.
+
+---
+
 ## Kala AI
 
 Kala AI is a **read-only** assistant in the board header ("Kala AI") and in every card ("Ask Kala AI"). It answers questions about the board you have open — summaries, overdue and high-priority work, what to focus on this week, cards that appear blocked or have no deadline, recent activity — and makes suggestions for a card (improve the description, suggest a checklist, priority or deadline, point out missing information). It never changes anything: answers are text you can read or copy, and there is no way for it to create, edit, move or delete data.

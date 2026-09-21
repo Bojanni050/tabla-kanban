@@ -95,6 +95,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  resendInvitation: (boardId: string, invitationId: string) =>
+    request<BoardInvitation>(`/boards/${boardId}/invitations/${invitationId}/resend`, {
+      method: 'POST',
+    }),
   revokeInvitation: (boardId: string, invitationId: string) =>
     request<void>(`/boards/${boardId}/invitations/${invitationId}`, { method: 'DELETE' }),
   updateMemberRole: (boardId: string, userId: string, role: AssignableRole) =>

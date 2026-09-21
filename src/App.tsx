@@ -27,9 +27,9 @@ import type {
   Workspace,
 } from '@/types';
 
-// Invitation links look like /invite/<token>
+// Invitation links look like /invite/<token> or /invitations/<token> (email links)
 const readInviteToken = () => {
-  const match = window.location.pathname.match(/^\/invite\/([^/]+)\/?$/);
+  const match = window.location.pathname.match(/^\/(?:invite|invitations)\/([^/]+)\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 };
 

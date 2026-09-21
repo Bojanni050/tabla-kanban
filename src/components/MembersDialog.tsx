@@ -102,6 +102,7 @@ export function MembersDialog({
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<AssignableRole>('MEMBER');
   const [inviting, setInviting] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [lastInvite, setLastInvite] = useState<BoardInvitation | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
@@ -152,9 +153,10 @@ export function MembersDialog({
       const invitation = await api.inviteToBoard(boardId, { email, role: inviteRole });
       setLastInvite(invitation);
       setInviteEmail('');
+      toast({ title: `Invitation sent to ${invitation.email}` });
       await load();
     } catch (e) {
-      fail('Could not create invitation', e);
+      fail('Could not send invitation. Please try again.', e);
     } finally {
       setInviting(false);
     }
@@ -170,6 +172,18 @@ export function MembersDialog({
     }
   };
 
+  const handleResend = async (invitation: BoardInvitation) => {
+    setResendingId(invitation.id);
+    try {
+      await api.resendInvitation(boardId, invitation.id);
+      toast({ title: `Invitation sent to ${invitation.email}` });
+      await load();
+    } catch (e) {
+      fail('Could not send invitation. Please try again.', e);
+    } finally {
+      setResendingId(null);
+    }
+  };
   const handleRoleChange = async (member: BoardMember, role: AssignableRole) => {
     try {
       await api.updateMemberRole(boardId, member.userId, role);
@@ -232,7 +246,7 @@ export function MembersDialog({
                   <div className="flex items-center gap-2">
                     <RoleSelect value={inviteRole} onChange={setInviteRole} label="Role for new invitation" />
                     <Button type="submit" size="sm" className="h-9 bg-[#2A2F36] px-4 text-white hover:bg-[#1E2329]" disabled={inviting || !inviteEmail.trim()}>
-                      {inviting ? 'Inviting...' : 'Invite'}
+                      {inviting ? 'Sending...' : 'Send invitation'}
                     </Button>
                   </div>
                 </form>
@@ -243,7 +257,7 @@ export function MembersDialog({
                 {lastInvite && (
                   <div className="space-y-2 rounded-lg border bg-[#F5F4F1] p-3 text-xs" style={{ borderColor: 'var(--kala-line)' }}>
                     <p className="text-foreground">
-                      Invitation created for <span className="font-semibold">{lastInvite.email}</span> as {ROLE_META[lastInvite.role].label}. No email is sent &mdash; share this link:
+                      Invitation sent to <span className="font-semibold">{lastInvite.email}</span> as {ROLE_META[lastInvite.role].label}. The link below is a backup, in case the email does not arrive:
                     </p>
                     <div className="flex items-center gap-2">
                       <Input readOnly value={inviteLink(lastInvite.token)} className="h-8 bg-white text-xs" onFocus={(e) => e.target.select()} aria-label="Invitation link" />
@@ -339,6 +353,10 @@ export function MembersDialog({
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <Badge variant="outline" className="hidden font-normal text-muted-foreground sm:inline-flex">Pending</Badge>
+                        <Button variant="outline" size="sm" className="h-7 gap-1 bg-white text-xs" onClick={() => handleResend(invitation)} disabled={resendingId === invitation.id} aria-label={`Resend invitation email to ${invitation.email}`}>
+                          <MailPlus className="h-3 w-3" aria-hidden />
+                          {resendingId === invitation.id ? 'Sending...' : 'Resend'}
+                        </Button>
                         <Button variant="outline" size="sm" className="h-7 gap-1 bg-white text-xs" onClick={() => copyLink(invitation.token)} aria-label={`Copy invite link for ${invitation.email}`}>
                           {copiedToken === invitation.token ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
                           {copiedToken === invitation.token ? 'Copied' : 'Copy link'}

@@ -54,6 +54,9 @@ services:
       CORS_ORIGIN: ${KALA_PUBLIC_URL:-http://localhost:8080}
       # Kala AI (optional). Read only by the backend; users can also save their own keys in Settings.
       KALA_PUBLIC_URL: ${KALA_PUBLIC_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Kala <noreply@kala.studiovanderheide.nl>}
+      APP_URL: ${APP_URL:-}
       AI_ANTHROPIC_API_KEY: ${AI_ANTHROPIC_API_KEY:-}
       AI_OPENAI_API_KEY: ${AI_OPENAI_API_KEY:-}
       AI_OPENROUTER_API_KEY: ${AI_OPENROUTER_API_KEY:-}
