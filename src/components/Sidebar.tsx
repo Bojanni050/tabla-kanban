@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { Workspace, Board, User, SharedBoard, MyInvitation } from '@/types';
 import { ROLE_LABELS, displayName } from '@/lib/roles';
+import { AiSettingsSection } from '@/components/AiSettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -631,7 +632,7 @@ function SettingsDialog({
   const boardCount = workspaces.reduce((n, w) => n + w.boards.length, 0);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[88vh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>Your Kala workspace preferences and account overview.</DialogDescription>
@@ -656,6 +657,7 @@ function SettingsDialog({
               </div>
             ))}
           </dl>
+          <AiSettingsSection active={open} />
           <div className="rounded-lg bg-[#F2F1ED] p-3 text-xs leading-relaxed text-muted-foreground">
             Kala uses a calm charcoal + coral + sage palette. Boards stay lightly styled on purpose:
             white cards, subtle borders and restrained shadows keep the focus on your work.

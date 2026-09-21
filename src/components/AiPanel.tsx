@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { format } from 'date-fns';
 import { Check, Copy, Loader2, RotateCcw, SendHorizontal, Sparkles, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { CardAiAction } from '@/types';
+import type { AiStatus, CardAiAction } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -123,7 +123,8 @@ interface AiPanelProps {
 }
 
 export function AiPanel({ open, boardId, boardName, card, onClearCard, onClose }: AiPanelProps) {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const enabled: boolean | null = status ? status.enabled : null;
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -133,11 +134,18 @@ export function AiPanel({ open, boardId, boardName, card, onClearCard, onClose }
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Ask the server once whether Kala AI is set up.
+  // Ask the server whether Kala AI works for this user (and with which provider) every time the
+  // panel opens, and again when they change their AI settings.
+  const refreshStatus = useCallback(() => {
+    api.getAiStatus().then(setStatus).catch(() => setStatus({ enabled: true }));
+  }, []);
   useEffect(() => {
-    if (!open || enabled !== null) return;
-    api.getAiStatus().then((s) => setEnabled(s.enabled)).catch(() => setEnabled(true));
-  }, [open, enabled]);
+    if (open) refreshStatus();
+  }, [open, refreshStatus]);
+  useEffect(() => {
+    window.addEventListener('kala-ai-settings-changed', refreshStatus);
+    return () => window.removeEventListener('kala-ai-settings-changed', refreshStatus);
+  }, [refreshStatus]);
 
   const reset = useCallback(() => {
     requestSeq.current++;
@@ -240,7 +248,9 @@ export function AiPanel({ open, boardId, boardName, card, onClearCard, onClose }
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold leading-tight text-foreground">Kala AI</h2>
-          <p className="text-[11px] leading-tight text-muted-foreground">Read-only assistant</p>
+          <p className="truncate text-[11px] leading-tight text-muted-foreground" title={status?.enabled ? `${status.provider} · ${status.model}` : undefined}>
+            Read-only assistant{status?.enabled && status.provider ? ` · ${status.provider}` : ''}
+          </p>
         </div>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={reset} disabled={messages.length === 0 && !loading} aria-label="Start a new conversation" title="New conversation">
           <RotateCcw className="h-4 w-4" aria-hidden />
@@ -272,8 +282,8 @@ export function AiPanel({ open, boardId, boardName, card, onClearCard, onClose }
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4 text-[13px] leading-relaxed" aria-live="polite">
         {enabled === false ? (
           <div className="rounded-lg border p-3 text-muted-foreground" style={line}>
-            <p className="font-medium text-foreground">Kala AI isn&rsquo;t set up on this server yet.</p>
-            <p className="mt-1">An administrator needs to configure an AI provider (set <code className="rounded bg-[#EFEDE8] px-1 text-[12px]">AI_API_KEY</code>). Your boards work as usual in the meantime.</p>
+            <p className="font-medium text-foreground">Kala AI isn&rsquo;t ready yet.</p>
+            <p className="mt-1">{status?.message ?? 'Kala AI is not set up yet.'} Your boards work as usual in the meantime.</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="space-y-3">

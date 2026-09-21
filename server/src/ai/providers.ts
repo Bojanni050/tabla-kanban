@@ -1,9 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AiConfig } from './config.js';
+import { getAiConfig } from './config.js';
+import type { ResolvedAi } from './resolve.js';
 
 // LLM provider adapters. The rest of Kala AI only sees the small interface below, so the
-// provider can be swapped with AI_PROVIDER without touching prompts, context or routes.
-// Only the backend ever talks to a provider - the API key never reaches the browser.
+// provider can change without touching prompts, context or routes.
+//
+//   anthropic -> the official Anthropic SDK (native Messages API)
+//   everything else -> ONE OpenAI-compatible adapter (chat completions): OpenAI, OpenRouter,
+//                      Google Gemini, Eden AI and custom endpoints
+//
+// Only the backend ever talks to a provider - API keys never reach the browser.
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -39,7 +45,7 @@ export interface LlmProvider {
   complete(request: LlmRequest): Promise<LlmResult>;
 }
 
-function kindForStatus(status: number | undefined): AiErrorKind {
+export function kindForStatus(status: number | undefined): AiErrorKind {
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate_limit';
   if (status === 400 || status === 404 || status === 422) return 'bad_request';
@@ -49,25 +55,26 @@ function kindForStatus(status: number | undefined): AiErrorKind {
 
 // ---- Anthropic (official SDK) ---------------------------------------------------------------
 
-function anthropicProvider(config: AiConfig): LlmProvider {
+function anthropicProvider(ai: ResolvedAi): LlmProvider {
+  const { maxTokens, timeoutMs } = getAiConfig();
   const client = new Anthropic({
-    apiKey: config.apiKey,
-    baseURL: config.baseUrl,
+    apiKey: ai.apiKey,
+    baseURL: ai.baseUrl ?? undefined,
     maxRetries: 1,
-    timeout: config.timeoutMs,
+    timeout: timeoutMs,
   });
 
   return {
     async complete({ system, messages }) {
       try {
         const response = await client.messages.create({
-          model: config.model,
-          max_tokens: config.maxTokens,
+          model: ai.model,
+          max_tokens: maxTokens,
           // The board context is large and identical across the turns of a conversation, so
           // mark it cacheable (a no-op below the model's minimum cacheable size).
           system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
           messages,
-          ...(config.effort ? { output_config: { effort: config.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } } : {}),
+          ...(ai.effort ? { output_config: { effort: ai.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } } : {}),
         });
 
         const text = response.content
@@ -92,14 +99,40 @@ function anthropicProvider(config: AiConfig): LlmProvider {
   };
 }
 
-// ---- OpenAI (chat completions; also works with OpenAI-compatible servers via AI_BASE_URL) ----
+// ---- OpenAI-compatible chat completions -----------------------------------------------------
 
-interface OpenAiChatResponse {
-  choices?: { message?: { content?: string | null }; finish_reason?: string }[];
+interface ChatCompletionResponse {
+  choices?: { message?: { content?: unknown; refusal?: string | null }; finish_reason?: string }[];
 }
 
-function openAiProvider(config: AiConfig): LlmProvider {
-  const base = (config.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
+/** Message content is normally a string; some gateways return an array of text parts. */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+      .join('');
+  }
+  return '';
+}
+
+export function openAiHeaders(ai: Pick<ResolvedAi, 'provider' | 'apiKey'>): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${ai.apiKey}`,
+  };
+  if (ai.provider === 'openrouter') {
+    // Optional attribution headers OpenRouter uses for its app rankings.
+    const site = (process.env.KALA_PUBLIC_URL ?? '').trim();
+    if (site) headers['HTTP-Referer'] = site;
+    headers['X-OpenRouter-Title'] = 'Kala';
+  }
+  return headers;
+}
+
+function openAiCompatibleProvider(ai: ResolvedAi): LlmProvider {
+  const { maxTokens, timeoutMs } = getAiConfig();
+  const base = (ai.baseUrl ?? '').replace(/\/+$/, '');
 
   return {
     async complete({ system, messages }) {
@@ -107,30 +140,30 @@ function openAiProvider(config: AiConfig): LlmProvider {
       try {
         res = await fetch(`${base}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+          headers: openAiHeaders(ai),
           body: JSON.stringify({
-            model: config.model,
-            max_completion_tokens: config.maxTokens,
+            model: ai.model,
+            [ai.tokenParam]: maxTokens,
             messages: [{ role: 'system', content: system }, ...messages],
           }),
-          signal: AbortSignal.timeout(config.timeoutMs),
+          signal: AbortSignal.timeout(timeoutMs),
         });
       } catch {
         throw new AiProviderError('unavailable');
       }
       if (!res.ok) throw new AiProviderError(kindForStatus(res.status), res.status);
 
-      const data = (await res.json().catch(() => ({}))) as OpenAiChatResponse;
+      const data = (await res.json().catch(() => ({}))) as ChatCompletionResponse;
       const choice = data.choices?.[0];
       return {
-        text: (choice?.message?.content ?? '').trim(),
-        refused: choice?.finish_reason === 'content_filter',
+        text: contentText(choice?.message?.content).trim(),
+        refused: choice?.finish_reason === 'content_filter' || Boolean(choice?.message?.refusal),
         truncated: choice?.finish_reason === 'length',
       };
     },
   };
 }
 
-export function createProvider(config: AiConfig): LlmProvider {
-  return config.provider === 'openai' ? openAiProvider(config) : anthropicProvider(config);
+export function createProvider(ai: ResolvedAi): LlmProvider {
+  return ai.style === 'anthropic' ? anthropicProvider(ai) : openAiCompatibleProvider(ai);
 }

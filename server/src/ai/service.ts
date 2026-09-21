@@ -1,24 +1,15 @@
 import type { BoardRole } from '@prisma/client';
-import { getAiConfig } from './config.js';
 import { buildBoardContext } from './context.js';
 import { ACTION_INSTRUCTIONS, buildSystemPrompt, type CardAction } from './prompts.js';
-import { createProvider, type ChatTurn, type LlmProvider } from './providers.js';
+import { createProvider, type ChatTurn } from './providers.js';
+import type { ResolvedAi } from './resolve.js';
 
 // Kala AI service: assembles the board context and the conversation and asks the configured
 // provider. It has no write access to anything - it returns text and nothing else.
 
-let provider: LlmProvider | null = null;
-
-function getProvider(): LlmProvider {
-  if (!provider) {
-    const config = getAiConfig();
-    if (!config) throw new Error('Kala AI is not configured');
-    provider = createProvider(config);
-  }
-  return provider;
-}
-
 export interface AskInput {
+  /** The provider, model and key to use for this request (see resolve.ts). */
+  ai: ResolvedAi;
   userId: string;
   boardId: string;
   role: BoardRole;
@@ -53,7 +44,7 @@ export async function askKalaAi(input: AskInput): Promise<AskResult> {
     last.content = ACTION_INSTRUCTIONS[input.action];
   }
 
-  const result = await getProvider().complete({ system, messages });
+  const result = await createProvider(input.ai).complete({ system, messages });
 
   if (result.refused) return { reply: REFUSED };
   if (!result.text) return { reply: "Kala AI didn't return an answer. Please try again." };

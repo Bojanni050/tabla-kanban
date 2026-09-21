@@ -4,6 +4,8 @@ import type {
   BoardInvitation,
   BoardMembersResponse,
   BoardRole,
+  AiSettings,
+  AiStatus,
   BoardWithDetails,
   Card,
   CardAiAction,
@@ -125,7 +127,15 @@ export const api = {
     }),
 
   // Kala AI (read-only assistant; the backend talks to the AI provider, never the browser)
-  getAiStatus: () => request<{ enabled: boolean }>('/ai/status'),
+  getAiStatus: () => request<AiStatus>('/ai/status'),
+  getAiSettings: () => request<AiSettings>('/ai/settings'),
+  saveAiSettings: (data: { provider: string; model: string; apiKey?: string }) =>
+    request<AiSettings>('/ai/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  resetAiSettings: () => request<AiSettings>('/ai/settings', { method: 'DELETE' }),
+  deleteAiKey: (provider: string) =>
+    request<AiSettings>(`/ai/settings/keys/${encodeURIComponent(provider)}`, { method: 'DELETE' }),
+  listAiModels: (provider: string) =>
+    request<{ models: string[] }>(`/ai/models?provider=${encodeURIComponent(provider)}`),
   askKalaAi: (
     boardId: string,
     data: {

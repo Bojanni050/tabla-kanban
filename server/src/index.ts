@@ -13,6 +13,7 @@ import labelRoutes from './routes/labels.js';
 import checklistRoutes from './routes/checklist.js';
 import realtimeRoutes from './routes/realtime.js';
 import aiRoutes from './routes/ai.js';
+import aiSettingsRoutes from './routes/aiSettings.js';
 import { describeAiConfig } from './ai/config.js';
 import { requireAuth } from './middleware/auth.js';
 
@@ -70,6 +71,7 @@ app.use('/api/labels', requireAuth, labelRoutes);
 app.use('/api/checklist', requireAuth, checklistRoutes);
 app.use('/api/realtime', requireAuth, realtimeRoutes);
 app.use('/api/ai', requireAuth, aiRoutes);
+app.use('/api/ai', requireAuth, aiSettingsRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

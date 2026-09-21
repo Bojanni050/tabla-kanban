@@ -18,6 +18,34 @@ model User {
   workspaces        Workspace[]
   boardMemberships  BoardMember[]
   sentInvitations   Invitation[]
+  aiSettings        UserAiSettings?
+  aiKeys            UserAiKey[]
+}
+
+// Kala AI: which provider and model a user chose in Settings (one row per user).
+model UserAiSettings {
+  userId    String   @id
+  provider  String
+  model     String
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// A user's own API key for one AI provider. Only ever stored encrypted (AES-256-GCM); the
+// plaintext key is never returned by the API. keyLast4 is a display hint ("...abcd").
+model UserAiKey {
+  id            String   @id @default(uuid())
+  userId        String
+  provider      String
+  keyCiphertext String
+  keyLast4      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
 }
 
 model Workspace {

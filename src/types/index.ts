@@ -78,6 +78,37 @@ export interface BoardWithDetails extends Board {
 
 export type BoardRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 
+// Kala AI settings (per user): which provider/model is used and whether keys are saved.
+export interface AiProviderInfo {
+  id: string;
+  label: string;
+  defaultModel: string;
+  openaiCompatible: boolean;
+  hasServerKey: boolean;
+  hasUserKey: boolean;
+  keyHint: string | null; // last 4 characters of the user's own key
+  keyHelpUrl: string | null;
+}
+
+export interface AiSettings {
+  canStoreKeys: boolean;
+  providers: AiProviderInfo[];
+  selection: { provider: string; model: string } | null;
+  serverDefault: { provider: string; model: string | null } | null;
+  effective:
+    | { ok: true; provider: string; model: string; keySource: 'user' | 'server'; choice: 'user' | 'default' }
+    | { ok: false; reason: string; provider: string | null };
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  provider?: string | null;
+  model?: string;
+  keySource?: 'user' | 'server';
+  reason?: string;
+  message?: string;
+}
+
 // Suggestion-only Kala AI requests about a single card
 export type CardAiAction =
   | 'improve_description'
