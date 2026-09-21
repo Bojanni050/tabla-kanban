@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
+import { authorizeBoard, authorizeWorkspace, parseName } from '../middleware/ownership.js';
 
 const router = Router();
 
-// GET /api/boards - list all boards
-router.get('/', async (_req: Request, res: Response) => {
+// GET /api/boards - list boards in the authenticated user's workspaces
+router.get('/', async (req: Request, res: Response) => {
   const boards = await prisma.board.findMany({
+    where: { workspace: { userId: req.userId } },
     include: { workspace: true },
     orderBy: { createdAt: 'asc' },
   });
@@ -14,6 +16,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
 // GET /api/boards/:id - get a board with its lists, cards, and labels
 router.get('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeBoard(req, res, req.params.id))) return;
   const board = await prisma.board.findUnique({
     where: { id: req.params.id },
     include: {
@@ -47,6 +50,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // GET /api/boards/:id/archived - get all archived cards for a board
 router.get('/:id/archived', async (req: Request, res: Response) => {
+  if (!(await authorizeBoard(req, res, req.params.id))) return;
   try {
     const archivedCards = await prisma.card.findMany({
       where: {
@@ -73,11 +77,13 @@ router.get('/:id/archived', async (req: Request, res: Response) => {
 
 // POST /api/boards
 router.post('/', async (req: Request, res: Response) => {
-  const { name, workspaceId } = req.body;
-  if (!name || !workspaceId) {
+  const name = parseName(req.body?.name);
+  const workspaceId = req.body?.workspaceId;
+  if (!name || typeof workspaceId !== 'string') {
     res.status(400).json({ error: 'name and workspaceId are required' });
     return;
   }
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
   const board = await prisma.board.create({
     data: { name, workspaceId },
   });
@@ -86,16 +92,22 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PATCH /api/boards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
-  const { name } = req.body;
+  if (!(await authorizeBoard(req, res, req.params.id))) return;
+  const name = parseName(req.body?.name);
+  if (!name) {
+    res.status(400).json({ error: 'name is required (max 100 characters)' });
+    return;
+  }
   const board = await prisma.board.update({
     where: { id: req.params.id },
-    data: { ...(name !== undefined && { name }) },
+    data: { name },
   });
   res.json(board);
 });
 
 // DELETE /api/boards/:id
 router.delete('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeBoard(req, res, req.params.id))) return;
   await prisma.board.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });

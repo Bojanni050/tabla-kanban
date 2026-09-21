@@ -1,15 +1,17 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
+import { authorizeCard, authorizeChecklistItem } from '../middleware/ownership.js';
 
 const router = Router();
 
 // POST /api/checklist - create a new checklist item for a card
 router.post('/', async (req: Request, res: Response) => {
   const { title, cardId } = req.body;
-  if (!title || !cardId) {
+  if (!title || typeof cardId !== 'string') {
     res.status(400).json({ error: 'title and cardId are required' });
     return;
   }
+  if (!(await authorizeCard(req, res, cardId))) return;
 
   // Calculate next position
   const lastItem = await prisma.checklistItem.findFirst({
@@ -31,6 +33,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PATCH /api/checklist/:id - update a checklist item
 router.patch('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeChecklistItem(req, res, req.params.id))) return;
   const { title, completed, position } = req.body;
   try {
     const item = await prisma.checklistItem.update({
@@ -50,6 +53,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 // DELETE /api/checklist/:id - delete a checklist item
 router.delete('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeChecklistItem(req, res, req.params.id))) return;
   try {
     await prisma.checklistItem.delete({
       where: { id: req.params.id },
@@ -64,10 +68,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // POST /api/checklist/reorder - reorder checklist items for a card
 router.post('/reorder', async (req: Request, res: Response) => {
   const { cardId, itemIds } = req.body;
-  if (!cardId || !Array.isArray(itemIds)) {
+  if (typeof cardId !== 'string' || !Array.isArray(itemIds)) {
     res.status(400).json({ error: 'cardId and itemIds array are required' });
     return;
   }
+  if (!(await authorizeCard(req, res, cardId))) return;
 
   try {
     await prisma.$transaction(

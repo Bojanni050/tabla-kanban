@@ -12,6 +12,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<BoardWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,20 +40,10 @@ function App() {
     try {
       setLoading(true);
       const data = await api.getWorkspaces();
-      if (data.length > 0) {
-        setWorkspaces(data);
-        const firstBoard = data[0]?.boards?.[0];
-        if (firstBoard) {
-          setActiveBoardId(firstBoard.id);
-        } else {
-          setActiveBoardId(null);
-          setBoard(null);
-        }
-      } else {
-        setWorkspaces([]);
-        setActiveBoardId(null);
-        setBoard(null);
-      }
+      setWorkspaces(data);
+      const first = data[0];
+      setActiveWorkspaceId(first?.id ?? null);
+      setActiveBoardId(first?.boards?.[0]?.id ?? null);
     } catch {
       setError(true);
     } finally {
@@ -75,6 +66,7 @@ function App() {
       loadWorkspaces();
     } else {
       setWorkspaces([]);
+      setActiveWorkspaceId(null);
       setActiveBoardId(null);
       setBoard(null);
       setLoading(false);
@@ -887,32 +879,102 @@ function App() {
     }
   };
 
+  // Workspace handlers
+  const handleSelectWorkspace = (workspaceId: string) => {
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) return;
+    setActiveWorkspaceId(workspaceId);
+    // Keep the open board if it belongs to this workspace, otherwise open its first board
+    if (!workspace.boards.some((b) => b.id === activeBoardId)) {
+      setActiveBoardId(workspace.boards[0]?.id ?? null);
+    }
+  };
+
+  const handleCreateWorkspace = async (name: string) => {
+    try {
+      const created = await api.createWorkspace(name);
+      setWorkspaces((prev) => [...prev, created]);
+      setActiveWorkspaceId(created.id);
+      setActiveBoardId(null);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to create workspace' });
+    }
+  };
+
+  const handleRenameWorkspace = async (workspaceId: string, name: string) => {
+    try {
+      const updated = await api.updateWorkspace(workspaceId, { name });
+      setWorkspaces((prev) =>
+        prev.map((w) => (w.id === workspaceId ? { ...w, name: updated.name } : w))
+      );
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to rename workspace' });
+    }
+  };
+
+  const handleDeleteWorkspace = async (workspaceId: string) => {
+    try {
+      await api.deleteWorkspace(workspaceId);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to delete workspace' });
+      return;
+    }
+    const remaining = workspaces.filter((w) => w.id !== workspaceId);
+    setWorkspaces(remaining);
+    if (activeWorkspaceId === workspaceId) {
+      const next = remaining[0];
+      setActiveWorkspaceId(next?.id ?? null);
+      setActiveBoardId(next?.boards[0]?.id ?? null);
+    }
+    toast({ title: 'Workspace deleted' });
+  };
+
+  // Board handlers
   const handleCreateBoard = async (name: string, workspaceId: string) => {
     try {
       const created = await api.createBoard(name, workspaceId);
       setWorkspaces((prev) =>
         prev.map((w) =>
-          w.id === workspaceId
-            ? { ...w, boards: [...w.boards, created] }
-            : w
+          w.id === workspaceId ? { ...w, boards: [...w.boards, created] } : w
         )
       );
+      setActiveWorkspaceId(workspaceId);
       setActiveBoardId(created.id);
     } catch {
-      // If API fails, add to demo workspace locally
-      const tempBoard = {
-        id: `temp-board-${Date.now()}`,
-        name,
-        workspaceId,
-      };
-      setWorkspaces((prev) =>
-        prev.map((w) =>
-          w.id === workspaceId
-            ? { ...w, boards: [...w.boards, tempBoard] }
-            : w
-        )
-      );
+      toast({ variant: 'destructive', title: 'Failed to create board' });
     }
+  };
+
+  const handleRenameBoard = async (boardId: string, name: string) => {
+    try {
+      const updated = await api.updateBoard(boardId, { name });
+      setWorkspaces((prev) =>
+        prev.map((w) => ({
+          ...w,
+          boards: w.boards.map((b) => (b.id === boardId ? { ...b, name: updated.name } : b)),
+        }))
+      );
+      setBoard((prev) => (prev && prev.id === boardId ? { ...prev, name: updated.name } : prev));
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to rename board' });
+    }
+  };
+
+  const handleDeleteBoard = async (boardId: string) => {
+    try {
+      await api.deleteBoard(boardId);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to delete board' });
+      return;
+    }
+    const owner = workspaces.find((w) => w.boards.some((b) => b.id === boardId));
+    setWorkspaces((prev) =>
+      prev.map((w) => ({ ...w, boards: w.boards.filter((b) => b.id !== boardId) }))
+    );
+    if (activeBoardId === boardId) {
+      setActiveBoardId(owner?.boards.find((b) => b.id !== boardId)?.id ?? null);
+    }
+    toast({ title: 'Board deleted' });
   };
 
   const handleLogout = async () => {
@@ -923,6 +985,7 @@ function App() {
     } finally {
       setUser(null);
       setWorkspaces([]);
+      setActiveWorkspaceId(null);
       setActiveBoardId(null);
       setBoard(null);
       toast({ title: 'Logged out successfully' });
@@ -958,9 +1021,16 @@ function App() {
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
         activeBoardId={activeBoardId}
+        onSelectWorkspace={handleSelectWorkspace}
+        onCreateWorkspace={handleCreateWorkspace}
+        onRenameWorkspace={handleRenameWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
         onSelectBoard={setActiveBoardId}
         onCreateBoard={handleCreateBoard}
+        onRenameBoard={handleRenameBoard}
+        onDeleteBoard={handleDeleteBoard}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         user={user}

@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../db.js';
+import { authorizeCard, authorizeLabel, authorizeList } from '../middleware/ownership.js';
 
 const router = Router();
 
 // GET /api/cards/:id
 router.get('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   const card = await prisma.card.findUnique({
     where: { id: req.params.id },
     include: {
@@ -27,10 +29,11 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/cards
 router.post('/', async (req: Request, res: Response) => {
   const { title, listId, description, priority, dueDate } = req.body;
-  if (!title || !listId) {
+  if (!title || typeof listId !== 'string') {
     res.status(400).json({ error: 'title and listId are required' });
     return;
   }
+  if (!(await authorizeList(req, res, listId))) return;
 
   // Calculate next position
   const lastCard = await prisma.card.findFirst({
@@ -79,7 +82,15 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PATCH /api/cards/:id
 router.patch('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   const { title, description, position, listId, priority, dueDate, archived } = req.body;
+  if (listId !== undefined) {
+    if (typeof listId !== 'string') {
+      res.status(400).json({ error: 'Invalid listId' });
+      return;
+    }
+    if (!(await authorizeList(req, res, listId))) return;
+  }
 
   let validatedPriority: 'LOW' | 'MEDIUM' | 'HIGH' | null | undefined = undefined;
   if (priority !== undefined) {
@@ -141,6 +152,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
 // POST /api/cards/:id/archive - archive a card
 router.post('/:id/archive', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   try {
     const card = await prisma.card.update({
       where: { id: req.params.id },
@@ -164,6 +176,7 @@ router.post('/:id/archive', async (req: Request, res: Response) => {
 
 // POST /api/cards/:id/restore - restore an archived card to the end of its list
 router.post('/:id/restore', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   try {
     const existingCard = await prisma.card.findUnique({
       where: { id: req.params.id },
@@ -205,9 +218,21 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
 
 // POST /api/cards/:id/labels - attach a label to a card
 router.post('/:id/labels', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   const { labelId } = req.body;
-  if (!labelId) {
+  if (typeof labelId !== 'string' || !labelId) {
     res.status(400).json({ error: 'labelId is required' });
+    return;
+  }
+  if (!(await authorizeLabel(req, res, labelId))) return;
+
+  // A label may only be attached to cards on its own board
+  const [card, label] = await Promise.all([
+    prisma.card.findUnique({ where: { id: req.params.id }, select: { list: { select: { boardId: true } } } }),
+    prisma.label.findUnique({ where: { id: labelId }, select: { boardId: true } }),
+  ]);
+  if (!card || !label || card.list.boardId !== label.boardId) {
+    res.status(400).json({ error: 'Label does not belong to the same board as this card' });
     return;
   }
 
@@ -238,6 +263,7 @@ router.post('/:id/labels', async (req: Request, res: Response) => {
 
 // DELETE /api/cards/:id/labels/:labelId - remove a label from a card
 router.delete('/:id/labels/:labelId', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   try {
     const card = await prisma.card.update({
       where: { id: req.params.id },
@@ -265,6 +291,7 @@ router.delete('/:id/labels/:labelId', async (req: Request, res: Response) => {
 
 // DELETE /api/cards/:id
 router.delete('/:id', async (req: Request, res: Response) => {
+  if (!(await authorizeCard(req, res, req.params.id))) return;
   await prisma.card.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });
