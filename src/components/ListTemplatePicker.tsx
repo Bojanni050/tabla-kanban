@@ -21,8 +21,6 @@ interface ListTemplatePickerProps {
 
 const PREVIEW_LIMIT = 5;
 
-const PREVIEW_LIMIT = 5;
-
 const templateMeta = (template: ListTemplate) => [
   { label: 'Lists', names: template.lists },
   { label: 'Labels', names: template.labels ?? [] },
@@ -79,8 +77,6 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
             const labels = template.labels ?? [];
             const swimlanes = template.swimlanes ?? [];
             const cardTypes = template.cardTypes ?? [];
-            const shown = template.lists.slice(0, PREVIEW_LIMIT);
-            const hidden = template.lists.length - shown.length;
             const meta = templateMeta(template);
             return (
               <button

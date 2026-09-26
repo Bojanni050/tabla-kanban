@@ -1,9 +1,6 @@
 // Built-in board templates.
 //
 // These are static application templates (no database model): applying one
-// Built-in board templates.
-//
-// These are static application templates (no database model): applying one
 // creates its lists, labels, swimlanes and card types on the current board
 // through the existing board template endpoint. No cards are ever created from
 // a template. Sections other than `lists` are optional so older list-only
@@ -161,27 +158,6 @@ export const LIST_TEMPLATES: ListTemplate[] = [
     cardTypes: ['Story', 'Task', 'Bug', 'Technical Debt'],
   },
 ];
-
-// Default colors for template card types, using the existing card-type palette
-// (blue, coral, amber, sage, teal, indigo, purple, pink) plus the established
-// label neutrals for grey/green.
-export const TEMPLATE_CARD_TYPE_COLORS: Record<string, string> = {
-  Bug: '#DC5A5A',
-  Regression: '#D9A03F',
-  Feature: '#5B8DD9',
-  Task: '#5B8DD9',
-  'Technical Debt': '#64748B',
-  Story: '#8B6FC7',
-  Content: '#4FA3A3',
-  Article: '#5B8DD9',
-  'Social Post': '#8B6FC7',
-  Video: '#4FA3A3',
-  Campaign: '#D9A03F',
-  Asset: '#CE6F51',
-  Page: '#10b981',
-  Project: '#6B7BD6',
-  Errand: '#D9A03F',
-};
 
 export interface BoardTemplateSnapshot {
   lists: string[];

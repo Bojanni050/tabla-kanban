@@ -12,8 +12,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useBoardRealtime } from '@/hooks/use-board-realtime';
-import { api, type TemplateApplyResult } from '@/lib/api';
-import { TEMPLATE_LABEL_COLORS, templateCardTypeColor, type ListTemplate } from '@/lib/list-templates';
+import { api } from '@/lib/api';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import type {
   BoardTemplateResult,
@@ -368,17 +367,6 @@ function App() {
           swimlanes: [...(prev.swimlanes || []), ...result.swimlanes.created].sort(byPosition),
           cardTypes: [...(prev.cardTypes || []), ...result.cardTypes.created].sort(byPosition),
         };
-      });
-      return result;
-    } catch {
-      toast({
-        variant: 'destructive',
-        title: 'Could not apply template',
-        description: 'The template could not be applied. Nothing was changed. Please try again.',
-      });
-      return null;
-    }
-  };
       });
       return result;
     } catch {
