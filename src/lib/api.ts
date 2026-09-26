@@ -41,18 +41,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// What the server reports after applying a board template: how many parts
-// were newly created and how many already existed on the board.
-export interface TemplateApplyResult {
-  lists: number;
-  labelsCreated: number;
-  labelsExisting: number;
-  swimlanesCreated: number;
-  swimlanesExisting: number;
-  cardTypesCreated: number;
-  cardTypesExisting: number;
-}
-
 export const api = {
   // Auth
   register: (data: { email: string; password: string }) =>
@@ -224,26 +212,12 @@ export const api = {
     request<Card[]>(`/boards/${boardId}/archived`),
   getBoardActivity: (boardId: string) =>
     request<BoardActivityEntry[]>(`/boards/${boardId}/activity`),
+  // Board templates: transactionally create the template's lists, labels,
+  // swimlanes and card types on a board. Never creates cards.
   applyBoardTemplate: (boardId: string, snapshot: BoardTemplateSnapshot) =>
     request<BoardTemplateResult>(`/boards/${boardId}/apply-template`, {
       method: 'POST',
       body: JSON.stringify(snapshot),
-    }),
-
-  // Board templates: transactionally create the template's lists, labels,
-  // swimlanes and card types on a board. Never creates cards.
-  applyBoardTemplate: (
-    boardId: string,
-    data: {
-      lists: string[];
-      labels: { name: string; color: string }[];
-      swimlanes: string[];
-      cardTypes: { name: string; color: string }[];
-    }
-  ) =>
-    request<TemplateApplyResult>(`/boards/${boardId}/apply-template`, {
-      method: 'POST',
-      body: JSON.stringify(data),
     }),
 
   // Swimlanes

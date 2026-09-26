@@ -31,14 +31,12 @@ import type {
   BoardActivityEntry,
   BoardRole,
   Card,
-  CardType,
   Label,
   Priority,
   BoardMember,
 } from '@/types';
-import { api, type TemplateApplyResult } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
-import { api, type TemplateApplyResult } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -486,7 +484,6 @@ export function BoardView({
   };
 
   const handleUseTemplate = async (template: ListTemplate) => {
-  const handleUseTemplate = async (template: ListTemplate) => {
     if (!onApplyBoardTemplate) return;
     setIsCreatingTemplate(true);
     const result = await onApplyBoardTemplate(board.id, toBoardTemplateSnapshot(template));
@@ -522,7 +519,6 @@ export function BoardView({
         ? ' Swimlanes and card types need an admin role.'
         : '';
     toast({ title: 'Template applied', description: `${joinParts(parts)} created.${restricted}` });
-  };
   };
 
   const myRoleMeta = ROLE_META[board.myRole];

@@ -162,26 +162,6 @@ export const LIST_TEMPLATES: ListTemplate[] = [
   },
 ];
 
-// Default colors for template card types, using the existing card-type palette
-// (blue, coral, amber, sage, teal, indigo, purple, pink) plus the established
-// label neutrals for grey/green.
-export const TEMPLATE_CARD_TYPE_COLORS: Record<string, string> = {
-  Bug: '#DC5A5A',
-  Regression: '#D9A03F',
-  Feature: '#5B8DD9',
-  Task: '#5B8DD9',
-  'Technical Debt': '#64748B',
-  Story: '#8B6FC7',
-  Content: '#4FA3A3',
-  Article: '#5B8DD9',
-  'Social Post': '#8B6FC7',
-  Video: '#4FA3A3',
-  Campaign: '#D9A03F',
-  Asset: '#CE6F51',
-  Page: '#10b981',
-  Project: '#6B7BD6',
-  Errand: '#D9A03F',
-};
 
 export interface BoardTemplateSnapshot {
   lists: string[];

@@ -33,7 +33,6 @@ if (!emailConfigured) {
     'Email is not configured (RESEND_API_KEY is not set). Board invitation emails will not be sent.'
   );
 }
-}
 
 export class EmailSendError extends Error {
   constructor(message: string) {

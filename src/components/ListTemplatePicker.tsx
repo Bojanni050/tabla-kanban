@@ -21,8 +21,6 @@ interface ListTemplatePickerProps {
 
 const PREVIEW_LIMIT = 5;
 
-const PREVIEW_LIMIT = 5;
-
 const templateMeta = (template: ListTemplate) => [
   { label: 'Lists', names: template.lists },
   { label: 'Labels', names: template.labels ?? [] },
@@ -79,8 +77,6 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
             const labels = template.labels ?? [];
             const swimlanes = template.swimlanes ?? [];
             const cardTypes = template.cardTypes ?? [];
-            const shown = template.lists.slice(0, PREVIEW_LIMIT);
-            const hidden = template.lists.length - shown.length;
             const meta = templateMeta(template);
             return (
               <button
@@ -109,7 +105,6 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
                 <span className="block pr-6 text-[13px] font-semibold text-foreground">{template.name}</span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{template.description}</span>
                 <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] font-semibold text-muted-foreground">
-                <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] font-semibold text-muted-foreground">
                   {meta.map(({ label, names }, i) => (
                     <span key={label} className="inline-flex items-center gap-1">
                       {i > 0 && <span aria-hidden>·</span>}
@@ -120,9 +115,6 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
                       </span>
                     </span>
                   ))}
-                </span>
-                <SectionPreview label="Lists" names={template.lists} />
-                <SectionPreview label="Swimlanes" names={swimlanes} />
                 </span>
                 <SectionPreview label="Lists" names={template.lists} />
                 <SectionPreview label="Swimlanes" names={swimlanes} />
