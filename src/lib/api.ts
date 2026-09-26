@@ -15,8 +15,11 @@ import type {
   Card,
   CardAiAction,
   ChecklistItem,
+  IntegrationKeyInfo,
+  IntegrationProviderInfo,
   Label,
   List,
+  MintedIntegrationKey,
   MyInvitation,
   Priority,
   SharedBoard,
@@ -158,6 +161,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  // External integrations (machine API keys; the token is returned only when minted)
+  getIntegrationProviders: () => request<IntegrationProviderInfo[]>('/integrations/providers'),
+  listIntegrationKeys: () => request<IntegrationKeyInfo[]>('/integrations/keys'),
+  createIntegrationKey: (data: { provider: string; name?: string }) =>
+    request<MintedIntegrationKey>('/integrations/keys', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  revokeIntegrationKey: (id: string) =>
+    request<void>(`/integrations/keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // Lists
   createList: (title: string, boardId: string) =>

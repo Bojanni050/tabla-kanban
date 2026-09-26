@@ -406,7 +406,7 @@ See [.env.example](.env.example) and [server/.env.example](server/.env.example) 
 
 ### 2. Create an integration API key (browser session)
 
-A person signs in to Kala and mints a key for the provider; the plaintext token is returned **exactly once** (only its SHA-256 hash is stored).
+A person signs in to Kala and mints a key for the provider — in the UI under **Settings → Integrations** (which also lists the configured providers and lets you revoke keys), or by calling the endpoint directly. The plaintext token is returned **exactly once** (only its SHA-256 hash is stored).
 
 ```http
 POST /api/integrations/keys          (session cookie; not machine auth)

@@ -86,6 +86,38 @@ export interface ExternalReference {
   updatedAt?: string;
 }
 
+/** A configured external integration provider (GET /api/integrations/providers). */
+export interface IntegrationProviderInfo {
+  provider: string;
+  label: string;
+  enabled: boolean;
+  base_url: string | null;
+  webhook: { configured: boolean; events: string[] };
+  default_board_id: string | null;
+  default_list_id: string | null;
+}
+
+/** An integration API key owned by the signed-in user. The token itself is never returned. */
+export interface IntegrationKeyInfo {
+  id: string;
+  name: string;
+  provider: string;
+  token_prefix: string;
+  revoked: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+/** Response to POST /api/integrations/keys - the only moment the plaintext token appears. */
+export interface MintedIntegrationKey {
+  id: string;
+  name: string;
+  provider: string;
+  token: string;
+  token_prefix: string;
+  created_at: string;
+}
+
 export interface Card {
   id: string;
   title: string;

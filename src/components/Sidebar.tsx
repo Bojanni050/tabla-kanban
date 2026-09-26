@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import type { Workspace, Board, User, SharedBoard, MyInvitation } from '@/types';
 import { ROLE_LABELS, displayName } from '@/lib/roles';
 import { AiSettingsSection } from '@/components/AiSettingsSection';
+import { IntegrationSettingsSection } from '@/components/IntegrationSettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -658,6 +659,7 @@ function SettingsDialog({
             ))}
           </dl>
           <AiSettingsSection active={open} />
+          <IntegrationSettingsSection active={open} />
           <div className="rounded-lg bg-[#F2F1ED] p-3 text-xs leading-relaxed text-muted-foreground">
             Kala uses a calm charcoal + coral + sage palette. Boards stay lightly styled on purpose:
             white cards, subtle borders and restrained shadows keep the focus on your work.
