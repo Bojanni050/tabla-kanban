@@ -18,11 +18,21 @@ const APP_URL = (process.env.APP_URL || 'https://kala.studiovanderheide.nl').rep
 
 // Constructed lazily: the backend must boot without RESEND_API_KEY (email sending is
 // optional). send() below rejects with a clear error when the key is missing, instead
-// of the whole app crashing at import time.
+// of the whole app crashing at import time. The warning is emitted once at startup so
+// operators know mail is disabled.
 let resendClient: Resend | null = null;
 function emailClient(): Resend {
   resendClient ??= new Resend(process.env.RESEND_API_KEY);
   return resendClient;
+}
+
+// Warn once at startup when email is not configured, without failing the boot.
+const emailConfigured = Boolean(process.env.RESEND_API_KEY);
+if (!emailConfigured) {
+  console.warn(
+    'Email is not configured (RESEND_API_KEY is not set). Board invitation emails will not be sent.'
+  );
+}
 }
 
 export class EmailSendError extends Error {

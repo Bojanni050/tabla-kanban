@@ -1,9 +1,13 @@
 // Built-in board templates.
 //
 // These are static application templates (no database model): applying one
-// creates its lists, labels, swimlanes and card types on the current board.
-// No cards are ever created from a template. Sections other than `lists` are
-// optional so older lists-only templates keep working.
+// Built-in board templates.
+//
+// These are static application templates (no database model): applying one
+// creates its lists, labels, swimlanes and card types on the current board
+// through the existing board template endpoint. No cards are ever created from
+// a template. Sections other than `lists` are optional so older list-only
+// templates keep working.
 
 export interface ListTemplate {
   id: string;
@@ -39,6 +43,31 @@ export const TEMPLATE_LABEL_COLORS: Record<string, string> = {
   Regression: '#D9A03F',
   'Technical Debt': '#64748B',
 };
+
+// Fixed colors for the standard template card types. Reuses the same palette
+// as the card type picker so template types look identical to hand-made ones.
+export const TEMPLATE_CARD_TYPE_COLORS: Record<string, string> = {
+  Task: '#5B8DD9',
+  Feature: '#5B8DD9',
+  Bug: '#DC5A5A',
+  Story: '#8B6FC7',
+  'Technical Debt': '#64748B',
+  Content: '#4FA3A3',
+  Campaign: '#D9A03F',
+  Page: '#7FA693',
+  Asset: '#D9A03F',
+  Article: '#5B8DD9',
+  'Social Post': '#8B6FC7',
+  Video: '#4FA3A3',
+  Regression: '#D9A03F',
+  Errand: '#D9A03F',
+  Project: '#5B8DD9',
+};
+
+const FALLBACK_CARD_TYPE_COLOR = '#5B8DD9';
+
+export const templateCardTypeColor = (name: string): string =>
+  TEMPLATE_CARD_TYPE_COLORS[name] || FALLBACK_CARD_TYPE_COLOR;
 
 export const LIST_TEMPLATES: ListTemplate[] = [
   {

@@ -24,9 +24,21 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardTemplateResult, BoardTemplateSnapshot, BoardWithDetails, BoardActivityEntry, BoardRole, Card, CardType, Label, Priority, BoardMember } from '@/types';
+import type {
+  BoardTemplateResult,
+  BoardTemplateSnapshot,
+  BoardWithDetails,
+  BoardActivityEntry,
+  BoardRole,
+  Card,
+  CardType,
+  Label,
+  Priority,
+  BoardMember,
+} from '@/types';
+import { api, type TemplateApplyResult } from '@/lib/api';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
-import { api } from '@/lib/api';
+import { api, type TemplateApplyResult } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -474,6 +486,7 @@ export function BoardView({
   };
 
   const handleUseTemplate = async (template: ListTemplate) => {
+  const handleUseTemplate = async (template: ListTemplate) => {
     if (!onApplyBoardTemplate) return;
     setIsCreatingTemplate(true);
     const result = await onApplyBoardTemplate(board.id, toBoardTemplateSnapshot(template));
@@ -509,6 +522,7 @@ export function BoardView({
         ? ' Swimlanes and card types need an admin role.'
         : '';
     toast({ title: 'Template applied', description: `${joinParts(parts)} created.${restricted}` });
+  };
   };
 
   const myRoleMeta = ROLE_META[board.myRole];
@@ -871,7 +885,7 @@ export function BoardView({
                         placeholder="Enter list title..." aria-label="New list title" className="h-9 bg-white text-sm" />
                       <Button size="sm" onClick={handleAddList} className="h-9 bg-[#2A2F36] text-white hover:bg-[#1E2329]">Add</Button>
                     </div>
-                  ) : onApplyBoardTemplate ? (
+) : onApplyBoardTemplate ? (
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
                         <Plus className="h-4 w-4" aria-hidden /> Add your first list
@@ -979,7 +993,7 @@ export function BoardView({
                       </Button>
                     </div>
                   </div>
-                ) : onApplyBoardTemplate ? (
+) : onApplyBoardTemplate ? (
                   <Popover open={isAddListMenuOpen} onOpenChange={setIsAddListMenuOpen}>
                     <PopoverTrigger asChild>
                       <button
@@ -1208,7 +1222,7 @@ export function BoardView({
                 <h3 className="kala-section-label px-1 pb-1">Recent team activity</h3>
                 <ul className="space-y-1">
                   {teamActivity.map((entry) => {
-                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string; cardTypeName?: string };
+                    const meta = (entry.metadata ?? {}) as { memberName?: string; role?: string; swimlaneName?: string; cardTypeName?: string; actorName?: string };
                     const roleLabel = meta.role ? ROLE_META[meta.role as BoardRole]?.label ?? meta.role : null;
                     const text =
                       entry.type === 'member.joined'
@@ -1237,7 +1251,14 @@ export function BoardView({
                                               ? 'Card types were reordered'
                                               : entry.type === 'card_type.deleted'
                                                 ? `Card type ${meta.cardTypeName ?? ''} was deleted`.trim()
-                                                : null;
+                                                : entry.type === 'template.applied'
+                                                  ? [
+                                                      'A template was applied',
+                                                      meta.actorName ? `by ${meta.actorName}` : null,
+                                                    ]
+                                                      .filter(Boolean)
+                                                      .join(' ')
+                                                  : null;
                     if (!text) return null;
                     return (
                       <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F5F4F1] px-3 py-1.5 text-[12px]">
