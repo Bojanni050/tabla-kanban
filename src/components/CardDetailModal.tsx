@@ -21,11 +21,14 @@ import {
   Sparkles,
   UserRound,
   ChevronDown,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import type { BoardMember, Card, CardType, Label, Priority } from '@/types';
 import { MemberAvatar } from './MemberAvatar';
 import { displayName as memberDisplayName } from '@/lib/roles';
+import { providerLabel } from '@/lib/integrations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -870,6 +873,34 @@ export function CardDetailModal({
                     )}
                   </div>
                 </section>
+
+                {/* Source - cards linked from an external system (integration API) */}
+                {(card.externalReferences?.length ?? 0) > 0 && (
+                  <section className="space-y-1.5 border-t pt-4" style={{ borderColor: 'var(--kala-line)' }} aria-label="Source">
+                    <h3 className="kala-section-label flex items-center gap-1.5"><Link2 className="h-3.5 w-3.5" aria-hidden />Source</h3>
+                    <ul className="space-y-1.5">
+                      {(card.externalReferences ?? []).map((ref) => {
+                        const label = providerLabel(ref.provider);
+                        return (
+                          <li key={ref.id} className="rounded-lg bg-[#F5F4F1] px-3 py-2">
+                            <p className="truncate text-xs font-medium text-foreground" title={label}>{label}</p>
+                            <p className="truncate text-[10px] text-muted-foreground" title={ref.externalId}>{ref.externalId}</p>
+                            {ref.externalUrl && (
+                              <a
+                                href={ref.externalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-[#3E6355] transition-colors hover:underline"
+                              >
+                                Open in {label} <ExternalLink className="h-3 w-3" aria-hidden />
+                              </a>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                )}
 
                 {/* Kala AI - read-only suggestions. Rendered as a span with role="button" so that it
                     keeps working for viewers, where the surrounding fieldset disables real buttons. */}

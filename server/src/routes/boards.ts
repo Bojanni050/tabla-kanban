@@ -74,6 +74,7 @@ router.get('/:id', async (req: Request, res: Response) => {
               cardType: {
                 select: { id: true, name: true, color: true },
               },
+              externalReferences: true,
               activities: {
                 orderBy: { createdAt: 'desc' },
                 take: 20,

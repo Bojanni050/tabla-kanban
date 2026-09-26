@@ -16,7 +16,14 @@ export const EMAIL_FROM =
   process.env.EMAIL_FROM || 'Kala <noreply@kala.studiovanderheide.nl>';
 const APP_URL = (process.env.APP_URL || 'https://kala.studiovanderheide.nl').replace(/\/+$/, '');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Constructed lazily: the backend must boot without RESEND_API_KEY (email sending is
+// optional). send() below rejects with a clear error when the key is missing, instead
+// of the whole app crashing at import time.
+let resendClient: Resend | null = null;
+function emailClient(): Resend {
+  resendClient ??= new Resend(process.env.RESEND_API_KEY);
+  return resendClient;
+}
 
 export class EmailSendError extends Error {
   constructor(message: string) {
@@ -112,7 +119,7 @@ async function send(options: {
     throw new EmailSendError('Email is not configured (RESEND_API_KEY is not set)');
   }
   try {
-    const { data, error } = await resend.emails.send(
+    const { data, error } = await emailClient().emails.send(
       {
         from: EMAIL_FROM,
         to: options.to,

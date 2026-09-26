@@ -379,6 +379,180 @@ Browser → Kala backend (`POST /api/ai/boards/:boardId/chat`) → Kala AI servi
 
 ---
 
+## Integration API (external systems)
+
+Kala exposes a small, generic integration API so an external system — **DocArchitect** first, any provider later — can create, retrieve and update Kala cards idempotently, discover boards/lists/labels/members, and receive webhooks. It lives under `/api/integrations`, is entirely optional and environment-driven: **without any `INTEGRATION_*` variables Kala has no integrations and works exactly as before.** There is no provider-specific code anywhere — a provider is a lower-case slug (`docarchitect`, `github`, …) configured through `INTEGRATION_<PROVIDER>_*` variables.
+
+Design principles:
+
+- **One permission model.** An integration API key is issued by a signed-in Kala user and every request it makes runs *as that user*. The existing board membership rules apply unchanged: a viewer's key can read, an editor's key can create and move cards, and a key can never touch a board its user is not a member of. There is no parallel auth system.
+- **Idempotent by design.** Every external record is stored as an `ExternalReference` unique on `(provider, external_id)`. Retrying `POST /:provider/tasks` returns the existing card with `200` + `X-Idempotent-Replay: true` instead of creating a duplicate (concurrent retries are handled too).
+- **Normalized status.** Kala's workflow is lists, so the API derives a small stable status set from the list title (see [Status mapping](#status-mapping)).
+
+### 1. Configure a provider (environment)
+
+```bash
+INTEGRATION_DOCARCHITECT_ENABLED=true
+INTEGRATION_DOCARCHITECT_LABEL=DocArchitect          # display name in the UI
+INTEGRATION_DOCARCHITECT_BASE_URL=https://docarchitect.example.com   # informational, never hardcoded
+INTEGRATION_DOCARCHITECT_DEFAULT_BOARD_ID=           # placement when a create omits board_id/list_id
+INTEGRATION_DOCARCHITECT_DEFAULT_LIST_ID=
+INTEGRATION_DOCARCHITECT_WEBHOOK_URL=                # where Kala POSTs events (empty = no webhooks)
+INTEGRATION_DOCARCHITECT_WEBHOOK_SECRET=             # shared secret for HMAC signing
+INTEGRATION_DOCARCHITECT_WEBHOOK_EVENTS=card.created,card.updated,card.moved,card.completed,card.archived
+```
+
+See [.env.example](.env.example) and [server/.env.example](server/.env.example) for the full annotated list.
+
+### 2. Create an integration API key (browser session)
+
+A person signs in to Kala and mints a key for the provider; the plaintext token is returned **exactly once** (only its SHA-256 hash is stored).
+
+```http
+POST /api/integrations/keys          (session cookie; not machine auth)
+Content-Type: application/json
+
+{ "provider": "docarchitect", "name": "DocArchitect production" }
+```
+
+```json
+{
+  "id": "…", "name": "DocArchitect production", "provider": "docarchitect",
+  "token": "kala_it_…", "token_prefix": "kala_it_ab12cd", "created_at": "…"
+}
+```
+
+- `GET /api/integrations/keys` lists the caller's keys (never the token; shows `revoked` and `last_used_at`).
+- `DELETE /api/integrations/keys/:id` revokes a key — revocation is immediate.
+- `GET /api/integrations/providers` shows configured providers (label, enabled, webhook subscription, defaults) and never exposes secrets.
+
+### 3. Machine requests
+
+Authenticate with `Authorization: Bearer kala_it_…` (or `X-Kala-Key: kala_it_…`). Every response is JSON; errors are `401/403/404/409/422/429/500` with a machine-readable `code`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/integrations/:provider/tasks` | Create a card (idempotent on `external_id`) |
+| `GET` | `/api/integrations/:provider/tasks/:externalId` | Current state of the mapped card |
+| `PATCH` | `/api/integrations/:provider/tasks/:externalId` | Update title/description/status/list/priority/due date |
+| `GET` | `/api/integrations/:provider/boards` | Boards the key's user can see |
+| `GET` | `/api/integrations/:provider/boards/:boardId/lists` | Lists with normalized `status` |
+| `GET` | `/api/integrations/:provider/boards/:boardId/labels` | Labels (`id`, `name`, `color`) |
+| `GET` | `/api/integrations/:provider/boards/:boardId/members` | Members (`id`, `name`, `email`, `role`) |
+
+**Create a task**
+
+```http
+POST /api/integrations/docarchitect/tasks
+Authorization: Bearer kala_it_…
+Content-Type: application/json
+
+{
+  "title": "Gevelbestek — constructietekening",
+  "description": "Uitwerking gewenst vóór de week 40",
+  "source": "docarchitect",                  // must equal :provider in the URL
+  "external_id": "action-8842",              // stable id in the external system
+  "external_url": "https://docarchitect.example.com/actions/8842",
+  "board_id": "…", "list_id": "…",           // optional (see placement below)
+  "label_ids": ["…"], "member_ids": ["…"],   // optional; labels must belong to the board,
+                                             // member_ids holds at most one id (Kala cards
+                                             // have a single assignee)
+  "priority": "HIGH",                        // LOW | MEDIUM | HIGH
+  "due_date": "2026-10-01",                  // ISO 8601
+  "metadata": { "project": "ABC-123" }       // stored with the external reference, echoed back
+}
+```
+
+`201` returns the task payload; a retry of the same `(provider, external_id)` returns `200` with the header `X-Idempotent-Replay: true`. **Placement:** `list_id` wins over `board_id` (which falls back to the configured defaults); unknown ids are `422`, Kala never creates boards or lists implicitly, and without any placement a clear `422` tells the caller to send one. `GET`/`PATCH` identify the card by `externalId` alone.
+
+**Task payload** (stable, snake_case — never a raw internal Kala payload):
+
+```json
+{
+  "id": "clx…", "title": "…", "description": "…",
+  "status": "in_progress",
+  "board": { "id": "…", "name": "Project X" },
+  "list":  { "id": "…", "title": "Doing" },
+  "members": [{ "id": "…", "name": "Ada", "email": "ada@…" }],
+  "labels": [{ "id": "…", "name": "Urgent", "color": "#CE6F51" }],
+  "priority": "HIGH", "due_date": "2026-10-01T00:00:00.000Z",
+  "archived": false,
+  "external_reference": { "provider": "docarchitect", "external_id": "action-8842",
+                          "external_url": "https://…", "metadata": { "project": "ABC-123" },
+                          "created_at": "…", "updated_at": "…" },
+  "created_at": "…", "updated_at": "…"
+}
+```
+
+A freshly created task reports `"status": "created"`; every later read normalizes its list.
+
+**Update a task** (`PATCH …/tasks/:externalId`): send any of `title`, `description`, `priority`, `due_date` (or `null` to clear), and exactly one of `status` (`todo | in_progress | completed | cancelled`) or `list_id` — never both (`422`). Moving a card requires edit rights on the target list, exactly like dragging it in the UI.
+
+**Errors** — always `{ "error": "human message", "code": "stable_code", "details"?: [{ "field", "message" }] }`, never a stack trace:
+
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 401 | `unauthorized` | Missing, invalid or revoked key |
+| 403 | `forbidden`, `provider_disabled`, `provider_mismatch` | No permission / provider off / key issued for another provider |
+| 404 | `not_found`, `unknown_provider` | No task for that `external_id`, or unknown board/list/provider |
+| 409 | — | Unique-concurrency conflicts are resolved into an idempotent `200` replay |
+| 422 | `validation_error` | Body/field problems, per-field in `details` |
+| 429 | `rate_limited` | Per-key limit (`INTEGRATION_RATE_LIMIT_PER_HOUR`, default 600/h); honours `Retry-After` |
+| 500 | `internal_error` | Generic message only |
+
+### Status mapping
+
+Kala cards sit in lists; the normalized status is derived from the list title (case-insensitive): *Done/Completed/Finished/Closed/Shipped/…* → `completed`, *Cancelled/Rejected/Dropped/…* → `cancelled`, *Doing/In progress/WIP/Review/…* → `in_progress`, *To do/Backlog/New/Ready/…* → `todo`, anything unrecognized → `todo`. Override any title with a JSON map:
+
+```bash
+INTEGRATION_STATUS_MAP={"Triaging":"todo","Building":"in_progress","Shipped":"completed"}
+```
+
+`PATCH` with a `status` moves the card to the first list (by position) whose title normalizes to that status; if no list matches, it answers `422` rather than guessing.
+
+### Webhooks
+
+When a card **with an external reference** changes, Kala POSTs a minimal payload to each configured provider's `WEBHOOK_URL` (only for subscribed events; deliveries are fire-and-forget with a 5s timeout, and normal Kala cards never produce webhooks):
+
+| Event | Fires when |
+|-------|------------|
+| `card.created` | A card was created for the provider |
+| `card.updated` | Title, description, priority or due date changed |
+| `card.moved` | The card moved to another list |
+| `card.completed` | The card moved into a `completed` list |
+| `card.archived` | The card was archived |
+
+```json
+{
+  "provider": "docarchitect",
+  "event": "card.moved",
+  "card_id": "clx…",
+  "external_reference": { "provider": "docarchitect", "external_id": "action-8842", "external_url": "https://…" },
+  "status": "in_progress",
+  "updated_at": "2026-09-26T12:00:00.000Z"
+}
+```
+
+Headers: `X-Kala-Event`, `X-Kala-Delivery` (unique per attempt), `X-Kala-Timestamp` (Unix seconds), `X-Kala-Provider`, and — when a secret is set — `X-Kala-Signature: sha256=<hex HMAC-SHA256 of "${timestamp}.${rawBody}">`. Verify it (and reject stale timestamps) before trusting a delivery:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(secret, { timestamp, signature }, rawBody) {
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // 5 min window
+  const expected = 'sha256=' + createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');
+  return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+```
+
+Kala logs delivery failures (provider, event, status) but never payloads or secrets; there is no retry queue — events are signals, the `GET …/tasks/:externalId` endpoint is the source of truth.
+
+### In the Kala UI
+
+Cards created through the integration show a subtle source badge in list/board/swimlane views and a **Source** section in the card detail with the provider, external id and an **“Open in …”** link back to the external system. Nothing else changes: externally created cards are ordinary Kala cards that everyone can edit.
+
+---
+
 ## Local development
 
 Development uses the Vite dev server and `tsx watch` on your machine; only PostgreSQL runs in Docker. (The production stack above is **not** used for development.)
@@ -466,6 +640,12 @@ The frontend runs on `http://localhost:5173` and calls the API at `http://localh
 | POST | `/api/cards` | Create a card |
 | PATCH | `/api/cards/:id` | Update a card |
 | DELETE | `/api/cards/:id` | Delete a card |
+| POST | `/api/integrations/keys` | Create an integration API key (session) |
+| GET / DELETE | `/api/integrations/keys[/:id]` | List / revoke integration keys (session) |
+| GET | `/api/integrations/providers` | Configured integration providers (session) |
+| POST | `/api/integrations/:provider/tasks` | Create a card from an external system (machine) |
+| GET / PATCH | `/api/integrations/:provider/tasks/:externalId` | Retrieve / update an externally created card (machine) |
+| GET | `/api/integrations/:provider/boards[/:boardId/lists\|labels\|members]` | Discovery for external systems (machine) |
 
 ## Features
 

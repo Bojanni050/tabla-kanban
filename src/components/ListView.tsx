@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, X, MoreHorizontal, Trash2, Pencil, Calendar as CalendarIcon, Flag, AlignLeft, CheckSquare, GripVertical } from 'lucide-react';
+import { Plus, X, MoreHorizontal, Trash2, Pencil, Calendar as CalendarIcon, Flag, AlignLeft, CheckSquare, GripVertical, Link2 } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { primaryExternalReference, providerLabel } from '@/lib/integrations';
 import type { Card } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -114,6 +115,7 @@ export function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItem
 
   const checklist = card.checklistItems ?? [];
   const completed = checklist.filter((i) => i.completed).length;
+  const externalSource = primaryExternalReference(card);
 
   return (
     <>
@@ -159,7 +161,7 @@ export function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItem
           </p>
         )}
 
-        {(card.dueDate || card.priority || checklist.length > 0 || card.description || card.assignee) && (
+        {(card.dueDate || card.priority || checklist.length > 0 || card.description || card.assignee || externalSource) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {card.dueDate && (
               <span
@@ -211,6 +213,16 @@ export function CardItem({ card, onDelete, onEdit, onClick, readOnly }: CardItem
             {card.description && (
               <span className="inline-flex items-center text-muted-foreground/70" title="This card has a description" aria-label="Has description">
                 <AlignLeft className="h-3 w-3" aria-hidden />
+              </span>
+            )}
+            {externalSource && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                title={`Source: ${providerLabel(externalSource.provider)}`}
+                aria-label={`Source: ${providerLabel(externalSource.provider)}`}
+              >
+                <Link2 className="h-3 w-3" aria-hidden />
+                <span>{providerLabel(externalSource.provider)}</span>
               </span>
             )}
             {card.assignee && (

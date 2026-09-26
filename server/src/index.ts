@@ -4,6 +4,7 @@ import cors from 'cors';
 import session from 'express-session';
 import authRoutes from './routes/auth.js';
 import boardRoutes from './routes/boards.js';
+import boardTemplateRoutes from './routes/boardTemplates.js';
 import boardMemberRoutes from './routes/boardMembers.js';
 import invitationRoutes from './routes/invitations.js';
 import listRoutes from './routes/lists.js';
@@ -16,6 +17,7 @@ import cardTypeRoutes from './routes/cardTypes.js';
 import realtimeRoutes from './routes/realtime.js';
 import aiRoutes from './routes/ai.js';
 import aiSettingsRoutes from './routes/aiSettings.js';
+import integrationRoutes from './routes/integrations.js';
 import { describeAiConfig } from './ai/config.js';
 import { requireAuth } from './middleware/auth.js';
 
@@ -65,6 +67,7 @@ app.use('/api/auth', authRoutes);
 // Protected routes
 app.use('/api/workspaces', requireAuth, workspaceRoutes);
 app.use('/api/boards', requireAuth, boardRoutes);
+app.use('/api/boards', requireAuth, boardTemplateRoutes);
 app.use('/api/boards', requireAuth, boardMemberRoutes);
 app.use('/api/invitations', requireAuth, invitationRoutes);
 app.use('/api/lists', requireAuth, listRoutes);
@@ -76,6 +79,9 @@ app.use('/api/card-types', requireAuth, cardTypeRoutes);
 app.use('/api/realtime', requireAuth, realtimeRoutes);
 app.use('/api/ai', requireAuth, aiRoutes);
 app.use('/api/ai', requireAuth, aiSettingsRoutes);
+// External integrations (DocArchitect etc.): the router applies session auth to its
+// key-management routes and API-key auth to machine traffic itself.
+app.use('/api/integrations', integrationRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -86,9 +92,13 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(describeAiConfig());
-});
+// Start the HTTP server only when this file is executed directly. Tests import the app
+// (supertest) and must not open a port.
+if (!process.env.VITEST) {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(describeAiConfig());
+  });
+}
 
 export default app;

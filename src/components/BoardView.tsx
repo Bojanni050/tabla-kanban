@@ -24,7 +24,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { isPast, isToday, isThisWeek, startOfDay, format } from 'date-fns';
-import type { BoardWithDetails, BoardActivityEntry, BoardRole, Card, CardType, Label, Priority, BoardMember } from '@/types';
+import type { BoardTemplateResult, BoardTemplateSnapshot, BoardWithDetails, BoardActivityEntry, BoardRole, Card, CardType, Label, Priority, BoardMember } from '@/types';
 import type { BoardRealtimeEvent, RealtimeStatus } from '@/lib/realtime';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -59,7 +59,7 @@ import { MembersDialog } from './MembersDialog';
 import { AiPanel } from './AiPanel';
 import { EmptyState } from './EmptyState';
 import { ListTemplatePicker } from './ListTemplatePicker';
-import type { ListTemplate } from '@/lib/list-templates';
+import { toBoardTemplateSnapshot, type ListTemplate } from '@/lib/list-templates';
 import { AvatarStack, MemberAvatar } from './MemberAvatar';
 import { ROLE_META } from './MemberAvatar';
 import { displayName } from '@/lib/roles';
@@ -101,6 +101,20 @@ const CARD_TYPE_COLORS = [
 ];
 // First-use suggestions shown in the manage dialog; never created without an explicit user action.
 const SUGGESTED_CARD_TYPES = ['Task', 'Feature', 'Bug', 'Request'];
+
+function pluralize(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+function describeCount(count: number, singular: string): string {
+  return `${count} ${pluralize(count, singular)}`;
+}
+
+function joinParts(parts: string[]): string {
+  if (parts.length <= 1) return parts.join('');
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
 
 const isCardOverdue = (dueDateStr: string | null | undefined) => {
   if (!dueDateStr) return false;
@@ -157,10 +171,8 @@ interface BoardViewProps {
   connectionStatus?: RealtimeStatus;
   /** Latest remote event (with counter) so open panels can catch up. */
   remoteEventTick?: { n: number; event: BoardRealtimeEvent } | null;
-  /** Create several lists at once (template flow). Sequential, order-preserving. */
-  onCreateListsFromTemplate?: (boardId: string, titles: string[]) => Promise<boolean>;
-  /** Create the template's standard labels on the board (skips existing names). */
-  onCreateLabelsFromTemplate?: (boardId: string, names: string[]) => Promise<{ created: number; skipped: number } | null>;
+  /** Apply a board template (lists, labels, swimlanes, card types) in one atomic operation. */
+  onApplyBoardTemplate?: (boardId: string, snapshot: BoardTemplateSnapshot) => Promise<BoardTemplateResult | null>;
 }
 
 function HeaderIconButton({ label, onClick, children, badge }: { label: string; onClick?: () => void; children: React.ReactNode; badge?: number }) {
@@ -225,8 +237,7 @@ export function BoardView({
   onOwnershipTransferred,
   connectionStatus = 'connected',
   remoteEventTick = null,
-  onCreateListsFromTemplate,
-  onCreateLabelsFromTemplate,
+  onApplyBoardTemplate,
 }: BoardViewProps) {
   const canEdit = canEditBoard(board.myRole);
   const { toast } = useToast();
@@ -463,24 +474,41 @@ export function BoardView({
   };
 
   const handleUseTemplate = async (template: ListTemplate) => {
-    if (!onCreateListsFromTemplate) return;
+    if (!onApplyBoardTemplate) return;
     setIsCreatingTemplate(true);
-    const listsOk = await onCreateListsFromTemplate(board.id, template.lists);
-    let labels: { created: number; skipped: number } | null = null;
-    if (listsOk && onCreateLabelsFromTemplate) {
-      labels = await onCreateLabelsFromTemplate(board.id, template.labels);
-    }
+    const result = await onApplyBoardTemplate(board.id, toBoardTemplateSnapshot(template));
     setIsCreatingTemplate(false);
-    if (!listsOk) return;
+    if (!result) return;
     setIsTemplatePickerOpen(false);
-    const labelNote = !labels
-      ? ''
-      : labels.created === template.labels.length
-        ? ` and ${template.labels.length} labels`
-        : labels.created > 0
-          ? ` and ${labels.created} new labels`
-          : '';
-    toast({ title: `Template applied: ${template.lists.length} lists${labelNote} created.` });
+
+    const parts: string[] = [];
+    parts.push(describeCount(result.lists.length, 'list'));
+    if (result.labels.created.length > 0 || result.labels.existing > 0) {
+      parts.push(
+        result.labels.existing > 0 && result.labels.created.length > 0
+          ? `${result.labels.created.length} new ${pluralize(result.labels.created.length, 'label')}`
+          : describeCount(result.labels.created.length + result.labels.existing, 'label')
+      );
+    }
+    if (result.swimlanes.created.length > 0 || result.swimlanes.existing > 0) {
+      parts.push(
+        result.swimlanes.existing > 0 && result.swimlanes.created.length > 0
+          ? `${result.swimlanes.created.length} new ${pluralize(result.swimlanes.created.length, 'swimlane')}`
+          : describeCount(result.swimlanes.created.length + result.swimlanes.existing, 'swimlane')
+      );
+    }
+    if (result.cardTypes.created.length > 0 || result.cardTypes.existing > 0) {
+      parts.push(
+        result.cardTypes.existing > 0 && result.cardTypes.created.length > 0
+          ? `${result.cardTypes.created.length} new ${pluralize(result.cardTypes.created.length, 'card type')}`
+          : describeCount(result.cardTypes.created.length + result.cardTypes.existing, 'card type')
+      );
+    }
+    const restricted =
+      result.swimlanes.restricted > 0 || result.cardTypes.restricted > 0
+        ? ' Swimlanes and card types need an admin role.'
+        : '';
+    toast({ title: 'Template applied', description: `${joinParts(parts)} created.${restricted}` });
   };
 
   const myRoleMeta = ROLE_META[board.myRole];
@@ -834,7 +862,7 @@ export function BoardView({
               <EmptyState
                 icon={<LayoutGrid className="h-5 w-5" />}
                 title={canEdit ? 'This board is empty' : 'No lists on this board'}
-                description={canEdit ? 'Add your first list or start from a proven template with lists and labels. Typical flow: To do, In progress, Done.' : 'There are no lists to show yet.'}
+                description={canEdit ? 'Add your first list or start from a proven template with lists, labels, swimlanes and card types. Typical flow: To do, In progress, Done.' : 'There are no lists to show yet.'}
                 action={canEdit ? (
                   isAddingList ? (
                     <div className="flex w-72 items-center gap-2">
@@ -843,7 +871,7 @@ export function BoardView({
                         placeholder="Enter list title..." aria-label="New list title" className="h-9 bg-white text-sm" />
                       <Button size="sm" onClick={handleAddList} className="h-9 bg-[#2A2F36] text-white hover:bg-[#1E2329]">Add</Button>
                     </div>
-                  ) : onCreateListsFromTemplate ? (
+                  ) : onApplyBoardTemplate ? (
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <Button onClick={() => setIsAddingList(true)} className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]">
                         <Plus className="h-4 w-4" aria-hidden /> Add your first list
@@ -951,7 +979,7 @@ export function BoardView({
                       </Button>
                     </div>
                   </div>
-                ) : onCreateListsFromTemplate ? (
+                ) : onApplyBoardTemplate ? (
                   <Popover open={isAddListMenuOpen} onOpenChange={setIsAddListMenuOpen}>
                     <PopoverTrigger asChild>
                       <button

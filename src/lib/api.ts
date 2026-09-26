@@ -9,6 +9,8 @@ import type {
   BoardRole,
   AiSettings,
   AiStatus,
+  BoardTemplateResult,
+  BoardTemplateSnapshot,
   BoardWithDetails,
   Card,
   CardAiAction,
@@ -210,6 +212,11 @@ export const api = {
     request<Card[]>(`/boards/${boardId}/archived`),
   getBoardActivity: (boardId: string) =>
     request<BoardActivityEntry[]>(`/boards/${boardId}/activity`),
+  applyBoardTemplate: (boardId: string, snapshot: BoardTemplateSnapshot) =>
+    request<BoardTemplateResult>(`/boards/${boardId}/apply-template`, {
+      method: 'POST',
+      body: JSON.stringify(snapshot),
+    }),
 
   // Swimlanes
   createSwimlane: (data: { name: string; boardId: string }) =>

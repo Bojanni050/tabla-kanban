@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../db.js';
 import { authorizeCard, authorizeLabel, authorizeList } from '../middleware/access.js';
 import { broadcast } from '../realtime.js';
+import { notifyCardIntegration } from '../integrations/webhooks.js';
 
 const router = Router();
 
@@ -64,11 +65,14 @@ router.post('/', async (req: Request, res: Response) => {
     include: cardInclude,
   });
   broadcast(card.list.boardId, 'card.created', card, req.userId!);
+  // No-op for normal cards; notifies external systems for cards with a reference.
+  void notifyCardIntegration({ cardId: card.id, kind: 'created' });
   res.status(201).json(card);
 });
 
 // A card always ships with its assignee, activity and nested relations.
-const cardInclude = {
+// Exported: integration writes broadcast the exact same shape as normal Kala mutations.
+export const cardInclude = {
   labels: true,
   checklistItems: {
     orderBy: { position: 'asc' },
@@ -89,6 +93,7 @@ const cardInclude = {
   cardType: {
     select: { id: true, name: true, color: true },
   },
+  externalReferences: true,
 } as const;
 
 const createActivity = (
@@ -222,6 +227,12 @@ router.patch('/:id', async (req: Request, res: Response) => {
       return;
     }
   }
+  // The list the card is leaving (when a move is requested), so integrations can tell
+  // moves and completions apart from plain field edits.
+  const previousListId =
+    listId !== undefined
+      ? (await prisma.card.findUnique({ where: { id: req.params.id }, select: { listId: true } }))?.listId ?? null
+      : null;
   try {
     const before = validatedAssigneeId !== undefined || validatedSwimlaneId !== undefined || validatedCardTypeId !== undefined
       ? await prisma.card.findUnique({ where: { id: req.params.id }, select: { assigneeId: true, swimlaneId: true, cardTypeId: true } })
@@ -290,6 +301,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
       include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.updated', card, req.userId!);
+    void notifyCardIntegration({ cardId: card.id, kind: 'updated', previousListId });
     res.json(card);
   } catch (error) {
     console.error('Error updating card:', error);
@@ -307,6 +319,7 @@ router.post('/:id/archive', async (req: Request, res: Response) => {
       include: cardInclude,
     });
     broadcast(card.list.boardId, 'card.archived', card, req.userId!);
+    void notifyCardIntegration({ cardId: card.id, kind: 'archived' });
     res.json(card);
   } catch (error) {
     console.error('Error archiving card:', error);

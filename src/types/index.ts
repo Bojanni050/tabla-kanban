@@ -74,6 +74,18 @@ export interface CardActivityEntry {
   createdAt: string;
 }
 
+/** External system record linked to a card (created/updated via the integration API). */
+export interface ExternalReference {
+  id: string;
+  cardId: string;
+  provider: string;
+  externalId: string;
+  externalUrl?: string | null;
+  lastSyncedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -91,6 +103,7 @@ export interface Card {
   createdAt?: string;
   updatedAt?: string;
   labels?: Label[];
+  externalReferences?: ExternalReference[];
   checklistItems?: ChecklistItem[];
   assignee?: CardPerson | null;
   activities?: CardActivityEntry[];
@@ -127,6 +140,31 @@ export interface BoardWithDetails extends Board {
   cardTypes?: CardType[];
   workspace: Workspace;
   myRole: BoardRole;
+}
+
+// Payload for POST /api/boards/:id/apply-template: the workflow structure of
+// one board template. Sections other than lists may be empty (lists-only
+// templates stay valid).
+export interface BoardTemplateSnapshot {
+  lists: string[];
+  labels: { name: string; color: string }[];
+  swimlanes: string[];
+  cardTypes: { name: string; color: string }[];
+}
+
+export interface BoardTemplateSectionResult<T> {
+  created: T[];
+  /** Items skipped because the board already has that name (existing data untouched). */
+  existing: number;
+  /** Items skipped because the caller's role may not manage that section. */
+  restricted: number;
+}
+
+export interface BoardTemplateResult {
+  lists: List[];
+  labels: BoardTemplateSectionResult<Label>;
+  swimlanes: BoardTemplateSectionResult<Swimlane>;
+  cardTypes: BoardTemplateSectionResult<CardType>;
 }
 
 export type BoardRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';

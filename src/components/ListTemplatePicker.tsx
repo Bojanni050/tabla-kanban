@@ -21,6 +21,30 @@ interface ListTemplatePickerProps {
 
 const PREVIEW_LIMIT = 5;
 
+function SectionPreview({ label, names }: { label: string; names: string[] }) {
+  if (names.length === 0) return null;
+  const shown = names.slice(0, PREVIEW_LIMIT);
+  const hidden = names.length - shown.length;
+  return (
+    <span className="mt-1.5 block">
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="mt-0.5 flex flex-wrap items-center gap-1" aria-label={`${label}: ${names.join(', ')}`}>
+        {shown.map((name) => (
+          <span key={name} className="inline-flex max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {name}
+          </span>
+        ))}
+        {hidden > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-muted-foreground">
+            <ArrowRight className="h-2.5 w-2.5" aria-hidden />
+            {hidden} more
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate }: ListTemplatePickerProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -34,17 +58,18 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
     <Dialog open={open} onOpenChange={(o) => !creating && onOpenChange(o)}>
       <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-lg flex-col bg-white">
         <DialogHeader className="text-left">
-          <DialogTitle>List templates</DialogTitle>
+          <DialogTitle>Board templates</DialogTitle>
           <DialogDescription>
-            Start with a proven structure. All of the template&apos;s lists and labels are added to this board at once — no cards are created.
+            Start with a proven workflow. A template adds its lists, labels, swimlanes and card types to this board at once — no cards are created.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid flex-1 gap-2 overflow-y-auto py-1 pr-0.5 sm:grid-cols-2" role="radiogroup" aria-label="List templates">
+        <div className="grid flex-1 gap-2 overflow-y-auto py-1 pr-0.5 sm:grid-cols-2" role="radiogroup" aria-label="Board templates">
           {LIST_TEMPLATES.map((template) => {
             const isSelected = template.id === selectedId;
-            const shown = template.lists.slice(0, PREVIEW_LIMIT);
-            const hidden = template.lists.length - shown.length;
+            const labels = template.labels ?? [];
+            const swimlanes = template.swimlanes ?? [];
+            const cardTypes = template.cardTypes ?? [];
             return (
               <button
                 key={template.id}
@@ -71,30 +96,30 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
                 )}
                 <span className="block pr-6 text-[13px] font-semibold text-foreground">{template.name}</span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{template.description}</span>
-                <span className="mt-2 flex flex-wrap items-center gap-1" aria-label={`Lists: ${template.lists.join(', ')}`}>
-                  {shown.map((name) => (
-                    <span key={name} className="inline-flex max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {name}
-                    </span>
-                  ))}
-                  {hidden > 0 && (
-                    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-muted-foreground">
-                      <ArrowRight className="h-2.5 w-2.5" aria-hidden />
-                      {hidden} more
-                    </span>
-                  )}
-                </span>
                 <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] font-semibold text-muted-foreground">
-                  <span>Lists: {template.lists.length}</span>
+                  <span>Lists {template.lists.length}</span>
                   <span aria-hidden>·</span>
-                  <span aria-label={`Labels: ${template.labels.join(', ')}`}>Labels: {template.labels.length}</span>
+                  <span>Labels {labels.length}</span>
+                  <span aria-hidden>·</span>
+                  <span>Swimlanes {swimlanes.length}</span>
+                  <span aria-hidden>·</span>
+                  <span>Card types {cardTypes.length}</span>
                 </span>
+                <SectionPreview label="Lists" names={template.lists} />
+                <SectionPreview label="Swimlanes" names={swimlanes} />
+                <SectionPreview label="Card types" names={cardTypes} />
+                <SectionPreview label="Labels" names={labels} />
               </button>
             );
           })}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="items-center gap-2 sm:gap-2">
+          {selected && (
+            <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
+              {selected.lists.length} lists · {(selected.labels ?? []).length} labels · {(selected.swimlanes ?? []).length} swimlanes · {(selected.cardTypes ?? []).length} card types
+            </p>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating} className="bg-white">
             Cancel
           </Button>
@@ -104,11 +129,7 @@ export function ListTemplatePicker({ open, onOpenChange, creating, onUseTemplate
             className="gap-1.5 bg-[#2A2F36] text-white hover:bg-[#1E2329]"
           >
             {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
-            {creating
-              ? 'Creating lists and labels...'
-              : selected
-                ? `Use template · ${selected.lists.length} lists · ${selected.labels.length} labels`
-                : 'Use template'}
+            {creating ? 'Applying template...' : 'Use template'}
           </Button>
         </DialogFooter>
       </DialogContent>

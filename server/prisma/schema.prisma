@@ -8,21 +8,22 @@ datasource db {
 }
 
 model User {
-  id           String      @id @default(uuid())
-  email        String      @unique
+  id           String   @id @default(uuid())
+  email        String   @unique
   name         String?
   passwordHash String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  workspaces          Workspace[]
-  boardMemberships    BoardMember[]
-  sentInvitations     Invitation[]
-  aiSettings          UserAiSettings?
-  aiKeys              UserAiKey[]
-  assignedCards       Card[]             @relation("CardAssignee")
-  cardActivities      CardActivity[]
-  boardActivities     BoardActivity[]
+  workspaces       Workspace[]
+  boardMemberships BoardMember[]
+  sentInvitations  Invitation[]
+  aiSettings       UserAiSettings?
+  aiKeys           UserAiKey[]
+  assignedCards    Card[]           @relation("CardAssignee")
+  cardActivities   CardActivity[]
+  boardActivities  BoardActivity[]
+  integrationKeys  IntegrationKey[]
 }
 
 // Kala AI: which provider and model a user chose in Settings (one row per user).
@@ -51,25 +52,67 @@ model UserAiKey {
   @@unique([userId, provider])
 }
 
+// A machine credential for the integration API (external systems such as DocArchitect).
+// Only the SHA-256 hash of the token is stored: the plaintext is shown once at creation
+// and never again. Requests made with a key act as `user`, so the normal BoardMember
+// role rules apply - there is no separate integration permission system. Revoking sets
+// revokedAt; the token then stops working immediately.
+model IntegrationKey {
+  id          String    @id @default(uuid())
+  name        String
+  provider    String
+  userId      String
+  tokenHash   String    @unique
+  tokenPrefix String
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, provider])
+}
+
+// The identity of a Kala card in an external system (a DocArchitect Action today, other
+// providers later). Optional: normal cards have no external reference. provider +
+// externalId uniquely identifies the originating work item, so a retried create request
+// from the external system can never produce a duplicate card.
+model ExternalReference {
+  id          String   @id @default(uuid())
+  cardId      String
+  provider    String
+  externalId  String
+  externalUrl String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([cardId])
+}
+
 model Workspace {
-  id        String      @id @default(uuid())
+  id        String   @id @default(uuid())
   name      String
   userId    String
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  boards     Board[]
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boards Board[]
 }
 
 model Board {
-  id          String      @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
   workspaceId String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   lists       List[]
   labels      Label[]
   members     BoardMember[]
@@ -124,14 +167,14 @@ model Invitation {
 }
 
 model List {
-  id        String      @id @default(uuid())
+  id        String   @id @default(uuid())
   title     String
   position  Float
   boardId   String
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
   cards Card[]
 }
 
@@ -203,27 +246,28 @@ model ChecklistItem {
 }
 
 model Card {
-  id          String          @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   description String?
   position    Float
   listId      String
   priority    Priority?
   dueDate     DateTime?
-  archived    Boolean         @default(false)
+  archived    Boolean   @default(false)
   assigneeId  String?
   swimlaneId  String?
   cardTypeId  String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  list           List            @relation(fields: [listId], references: [id], onDelete: Cascade)
-  swimlane       Swimlane?       @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
-  cardType       CardType?       @relation(fields: [cardTypeId], references: [id], onDelete: SetNull)
-  labels         Label[]
-  checklistItems ChecklistItem[]
-  assignee       User?           @relation("CardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  activities     CardActivity[]
+  list               List                @relation(fields: [listId], references: [id], onDelete: Cascade)
+  swimlane           Swimlane?           @relation(fields: [swimlaneId], references: [id], onDelete: SetNull)
+  cardType           CardType?           @relation(fields: [cardTypeId], references: [id], onDelete: SetNull)
+  labels             Label[]
+  checklistItems     ChecklistItem[]
+  assignee           User?               @relation("CardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  activities         CardActivity[]
+  externalReferences ExternalReference[]
 
   @@index([listId, position])
   @@index([archived])
@@ -257,7 +301,7 @@ model CardActivity {
   metadata  Json?
   createdAt DateTime @default(now())
 
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
   actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([cardId, createdAt])
